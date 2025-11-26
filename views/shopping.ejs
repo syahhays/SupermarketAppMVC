@@ -2,84 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supermarket Shop</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <title>Supermarket App</title>
+
+  <style>
+    /* make add-to-cart look cleaner */
+    .qty-input {
+      width: 70px;
+    }
+    .add-btn {
+      min-width: 110px;
+    }
+    footer {
+      margin-top: 50px;
+      padding: 20px 0;
+      text-align: center;
+      color: #777;
+    }
+  </style>
 </head>
+
 <body>
-    <nav class="navbar navbar-expand-sm bg-dark navbar-dark">
-      <div class="container-fluid">
-        <a class="navbar-brand" href="/">Supermarket App</a>
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#collapsibleNavbar">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="collapsibleNavbar">
-          <ul class="navbar-nav">
-            <li class="nav-item">
-              <a class="nav-link" href="/cart">View Cart</a>
-            </li> 
-            <li class="nav-item">
-              <a class="nav-link" href="/logout">Logout</a>
-            </li> 
-          </ul>
-        </div>
-      </div>
-    </nav>
+  <%- include('partials/navbar') %>
 
   <div class="container">
-    <p>Welcome, <%= user.username %> (<%= user.role %>)</p>
-    <br>
-    <div class="text-center"><h2>Products from Supermarket</h2></div>
-    <br>
-    <table class="table table-hover small text-center">
-      <thead>
-          <tr>
-            <th width="100">Product Name</th>
-            <th width="100">Product Image</th>
-            <th width="50">Quantity</th>
-            <th width="50">Price</th>
-            <th width="50">Quantity</th>
-            <th width="50">Buy</th>
-          </tr>
-      </thead>
-      <tbody>
-        <% for(let i=0; i < products.length; i++) { %>
-          <tr>
-            <td><a href="/product/<%= products[i].id %>" ><%= products[i].productName %></a></td>
-            <td><img src = "images/<%= products[i].image %>" width="20%"></td>
-            <td><%= products[i].quantity %></td>
-            <td>$<%= products[i].price.toFixed(2) %></td>
-            <!-- <td>
-              <select id="role" name="role" class="form-control" >
-                <option value="1" selected >1</option>
-                <option value="2" >2</option>
-                <option value="3" >3</option>
-                <option value="4" >4</option>
-                <option value="5" >5</option>
-              </select>
-            </td> -->
-            <!-- Buy Link -->
-            <!-- <td><a href="/buyProduct/<%#= products[i].id %>" class="btn btn-primary mt-3">Buy</a></td> -->
-            <td>
-              <select class="form-control" onchange="document.getElementById('quantity-<%= products[i].id %>').value = this.value">
-                <% for (let q = 1; q <= 5; q++) { %>
-                  <option value="<%= q %>"><%= q %></option>
-                <% } %>
-              </select>
-            </td>
+    <h1 class="mb-4">Supermarket Shop</h1>
 
-            <td>
-                <form action="/add-to-cart/<%= products[i].id %>" method="POST">
-                  <input type="hidden" name="quantity" id="quantity-<%= products[i].id %>" value="1">
-                  <button type="submit" class="btn btn-primary mt-3">Buy</button>
-                </form>
-            </td>
+    <% if (products && products.length > 0) { %>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle">
+          <thead class="table-dark">
+            <tr>
+              <th scope="col">Image</th>
+              <th scope="col">Product</th>
+              <th scope="col">Price ($)</th>
+              <th scope="col">Available Qty</th>
+              <th scope="col" class="text-end" style="width: 220px;">Add to Cart</th>
+            </tr>
+          </thead>
 
-          </tr>
-        <% } %>
-      </tbody>
-    </table>
+          <tbody>
+            <% products.forEach(product => { %>
+              <tr>
+                <!-- Image -->
+                <td style="width: 80px;">
+                  <% if (product.image) { %>
+                    <img src="/images/<%= product.image %>" 
+                         alt="<%= product.productName %>"
+                         class="img-fluid"
+                         style="max-height: 60px;">
+                  <% } else { %>
+                    <span class="text-muted">No image</span>
+                  <% } %>
+                </td>
+
+                <!-- Name -->
+                <td><strong><%= product.productName %></strong></td>
+
+                <!-- Price -->
+                <td><%= product.price.toFixed ? product.price.toFixed(2) : product.price %></td>
+
+                <!-- Stock -->
+                <td><%= product.quantity %></td>
+
+                <!-- Add to Cart -->
+                <td class="text-end">
+                  <form action="/add-to-cart/<%= product.id %>"
+                        method="POST"
+                        class="d-flex justify-content-end gap-2">
+
+                    <input 
+                      type="number"
+                      name="quantity"
+                      class="form-control form-control-sm qty-input"
+                      value="1"
+                      min="1"
+                      max="<%= product.quantity %>"
+                    >
+
+                    <button type="submit" class="btn btn-primary btn-sm add-btn">
+                      Add to Cart
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+
+    <% } else { %>
+
+      <p class="text-muted">No products available.</p>
+
+    <% } %>
   </div>
+
+  <footer>
+    Supermarket App
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
