@@ -13,6 +13,20 @@ const Product = {
         db.query(sql, [id], callback);
     },
 
+    // Search products by name (case-insensitive)
+    search: (query, callback) => {
+        const sql = 'SELECT * FROM products WHERE productName LIKE ?';
+        const term = `%${query}%`;
+        db.query(sql, [term], callback);
+    },
+
+    // Suggest product names (id + productName), limited
+    searchSuggest: (query, limit, callback) => {
+        const sql = 'SELECT id, productName FROM products WHERE productName LIKE ? ORDER BY productName LIMIT ?';
+        const term = `%${query}%`;
+        db.query(sql, [term, limit || 8], callback);
+    },
+
     // Add new product
     add: (productData, callback) => {
         const sql = `
@@ -47,7 +61,17 @@ const Product = {
     delete: (id, callback) => {
         const sql = 'DELETE FROM products WHERE id = ?';
         db.query(sql, [id], callback);
-    }
+    },
+
+    // Decrement product quantity by amount (clamp at 0)
+    decrementQuantity: (id, amount, callback) => {
+        const sql = `
+            UPDATE products
+            SET quantity = GREATEST(quantity - ?, 0)
+            WHERE id = ?
+        `;
+        db.query(sql, [amount, id], callback);
+    },
 };
 
 module.exports = Product;

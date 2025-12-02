@@ -14,10 +14,18 @@ const inventory = (req, res) => {
 // LIST ALL PRODUCTS (USER SHOPPING PAGE)
 // =======================
 const shopping = (req, res) => {
-    Product.getAll((err, products) => {
+    const q = (req.query.q || '').toString().trim();
+
+    const renderProducts = (err, products) => {
         if (err) return res.status(500).send("Error retrieving products");
-        res.render('shopping', { user: req.session.user, products });
-    });
+        res.render('shopping', { user: req.session.user, products, query: q });
+    };
+
+    if (q.length > 0) {
+        Product.search(q, renderProducts);
+    } else {
+        Product.getAll(renderProducts);
+    }
 };
 
 // =======================

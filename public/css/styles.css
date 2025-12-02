@@ -1,0 +1,5 @@
+/* ...existing code... */
+#product-search { min-width: 220px; }
+#search-suggestions { max-height: 260px; overflow:auto; }
+/* make suggestion items a bit tighter */
+#search-suggestions .list-group-item { padding: 6px 10px; }

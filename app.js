@@ -2,7 +2,6 @@ const express = require('express');
 const session = require('express-session');
 const flash = require('connect-flash');
 const multer = require('multer');
-const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -11,6 +10,21 @@ const app = express();
 const ProductController = require('./controllers/ProductController');
 const UserController = require('./controllers/UserController');
 const CartController = require('./controllers/CartController');
+const Product = require('./models/Product'); // already present
+
+// Suggest endpoint for autocomplete
+app.get('/api/products/suggest', (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  const limit = parseInt(req.query.limit, 10) || 8;
+  if (!q) return res.json([]);
+  Product.searchSuggest(q, limit, (err, rows) => {
+    if (err) {
+      console.error('Suggest error:', err);
+      return res.status(500).json([]);
+    }
+    res.json(rows || []);
+  });
+});
 
 // =========================
 // Multer (image upload)
@@ -23,7 +37,6 @@ const storage = multer.diskStorage({
     cb(null, file.originalname);
   }
 });
-
 const upload = multer({ storage: storage });
 
 // =========================
@@ -33,44 +46,46 @@ app.set('view engine', 'ejs');
 app.use(express.static('public'));
 app.use(express.urlencoded({ extended: false }));
 
-app.use(session({
-  secret: 'secret',
-  resave: false,
-  saveUninitialized: true,
-  cookie: { maxAge: 1000 * 60 * 60 * 24 * 7 } // 1 week
-}));
+app.use(
+  session({
+    secret: 'secret',
+    resave: false,
+    saveUninitialized: true,
+    cookie: { maxAge: 1000 * 60 * 60 * 24 * 7 }
+  })
+);
 
 app.use(flash());
 
 // =========================
-// Authentication Middleware
+// Authentication
 // =========================
 const checkAuthenticated = (req, res, next) => {
   if (req.session.user) return next();
-  req.flash('error', 'Please log in to view this resource');
+  req.flash('error', 'Please log in');
   res.redirect('/login');
 };
 
 const checkAdmin = (req, res, next) => {
   if (req.session.user && req.session.user.role === 'admin') return next();
   req.flash('error', 'Access denied');
-  res.redirect('/shopping');
+  res.redirect('/');
 };
 
 // =========================
-// Validation Middleware
+// Registration Validation
 // =========================
 const validateRegistration = (req, res, next) => {
   const { username, email, password, address, contact, role } = req.body;
 
   if (!username || !email || !password || !address || !contact || !role) {
-    req.flash('error', 'All fields are required.');
+    req.flash('error', 'All fields required');
     req.flash('formData', req.body);
     return res.redirect('/register');
   }
 
   if (password.length < 6) {
-    req.flash('error', 'Password should be at least 6 characters long');
+    req.flash('error', 'Password too short');
     req.flash('formData', req.body);
     return res.redirect('/register');
   }
@@ -85,43 +100,20 @@ const validateRegistration = (req, res, next) => {
 // Home
 app.get('/', UserController.home);
 
-// =========================
-// PRODUCT ROUTES (MVC)
-// =========================
+// Products
 app.get('/inventory', checkAuthenticated, checkAdmin, ProductController.inventory);
 app.get('/shopping', checkAuthenticated, ProductController.shopping);
 app.get('/product/:id', checkAuthenticated, ProductController.getProduct);
 
 app.get('/addProduct', checkAuthenticated, checkAdmin, ProductController.addForm);
-app.post('/addProduct',
-  checkAuthenticated,
-  checkAdmin,
-  upload.single('image'),
-  ProductController.addProduct
-);
+app.post('/addProduct', checkAuthenticated, checkAdmin, upload.single('image'), ProductController.addProduct);
 
-app.get('/updateProduct/:id',
-  checkAuthenticated,
-  checkAdmin,
-  ProductController.updateForm
-);
+app.get('/updateProduct/:id', checkAuthenticated, checkAdmin, ProductController.updateForm);
+app.post('/updateProduct/:id', checkAuthenticated, checkAdmin, upload.single('image'), ProductController.updateProduct);
 
-app.post('/updateProduct/:id',
-  checkAuthenticated,
-  checkAdmin,
-  upload.single('image'),
-  ProductController.updateProduct
-);
+app.get('/deleteProduct/:id', checkAuthenticated, checkAdmin, ProductController.deleteProduct);
 
-app.get('/deleteProduct/:id',
-  checkAuthenticated,
-  checkAdmin,
-  ProductController.deleteProduct
-);
-
-// =========================
-// USER ROUTES (MVC)
-// =========================
+// User
 app.get('/register', UserController.showRegister);
 app.post('/register', validateRegistration, UserController.register);
 
@@ -130,30 +122,27 @@ app.post('/login', UserController.login);
 
 app.get('/logout', UserController.logout);
 
-// =========================
-// CART ROUTES (MVC)
-// =========================
-app.post('/add-to-cart/:id',
-  checkAuthenticated,
-  CartController.addToCart
-);
+// Cart
+app.post('/add-to-cart/:id', checkAuthenticated, CartController.addToCart);
+app.get('/cart', checkAuthenticated, CartController.viewCart);
 
-app.get('/cart',
-  checkAuthenticated,
-  CartController.viewCart
-);
-
-app.get('/checkout', checkAuthenticated, CartController.checkoutPage);
-
-// Update quantity
 app.post('/cart/update/:productId', checkAuthenticated, CartController.updateQuantity);
-
-// Remove item
 app.get('/cart/remove/:productId', checkAuthenticated, CartController.removeItem);
-
-// Clear cart
 app.get('/cart/clear', checkAuthenticated, CartController.clearCart);
 
+// Checkout + Orders
+app.get('/checkout', checkAuthenticated, CartController.checkoutPage);
+app.post('/checkout', checkAuthenticated, CartController.placeOrder);
+
+app.get('/orders', checkAuthenticated, CartController.orderHistory);
+app.get('/orders/:id', checkAuthenticated, CartController.orderDetails);
+
+// Admin Order Management
+app.get('/admin/orders', checkAuthenticated, checkAdmin, CartController.adminOrders);
+app.get('/admin/orders/:id', checkAuthenticated, checkAdmin, CartController.adminOrderDetails);
+
+// Admin Routes
+app.use('/admin', require('./routes/admin'));
 
 // =========================
 // SERVER
