@@ -1,6 +1,6 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
   <div class="container">
-    <a class="navbar-brand me-4" href="/">Supermarket App</a>
+    <a class="navbar-brand me-4" href="/">Groceria</a>
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
       <span class="navbar-toggler-icon"></span>
@@ -67,3 +67,32 @@
     </div>
   </div>
 </nav>
+
+<div class="container">
+  <% if (successMessages && successMessages.length) { %>
+    <% successMessages.forEach(function(msg) { %>
+      <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+        <%= msg %>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    <% }) %>
+  <% } %>
+
+  <% if (errorMessages && errorMessages.length) { %>
+    <% errorMessages.forEach(function(msg) { %>
+      <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+        <%= msg %>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    <% }) %>
+  <% } %>
+
+  <% if (infoMessages && infoMessages.length) { %>
+    <% infoMessages.forEach(function(msg) { %>
+      <div class="alert alert-info alert-dismissible fade show py-2" role="alert">
+        <%= msg %>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      </div>
+    <% }) %>
+  <% } %>
+</div>

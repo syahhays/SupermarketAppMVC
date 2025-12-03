@@ -1,172 +1,236 @@
 const Product = require('../models/Product');
 
+// Define all valid categories
+const categories = [
+  'fresh-produce',
+  'meat-poultry',
+  'seafood',
+  'dairy-eggs',
+  'frozen',
+  'beverages',
+  'snacks',
+  'household',
+  'bakery'
+];
+
 // =======================
 // LIST ALL PRODUCTS (ADMIN)
 // =======================
 const inventory = (req, res) => {
-    Product.getAll((err, products) => {
-        if (err) return res.status(500).send("Error retrieving products");
-        res.render('inventory', { products, user: req.session.user });
-    });
+  Product.getAll((err, products) => {
+    if (err) {
+      console.error('Inventory error:', err);
+      req.flash('error', 'Error retrieving products.');
+      return res.redirect('/');
+    }
+    res.render('inventory', { products });
+  });
 };
 
 // =======================
 // LIST ALL PRODUCTS (USER SHOPPING PAGE)
 // =======================
 const shopping = (req, res) => {
-    const q = (req.query.q || '').toString().trim();
+  const q = (req.query.q || '').trim();
+  const category = (req.query.category || '').trim();
 
-    const renderProducts = (err, products) => {
-        if (err) return res.status(500).send("Error retrieving products");
-        res.render('shopping', { user: req.session.user, products, query: q });
-    };
+  // Case 1: Search
+  if (q.length > 0) {
+    Product.search(q, (err, products) => {
+      if (err) {
+        console.error('Search error:', err);
+        req.flash('error', 'Error searching products.');
+        return res.redirect('/shopping');
+      }
+      res.render('shopping', { products, query: q });
+    });
+    return;
+  }
 
-    if (q.length > 0) {
-        Product.search(q, renderProducts);
-    } else {
-        Product.getAll(renderProducts);
+  // Case 2: Category filter
+  if (category.length > 0) {
+    Product.getByCategory(category, (err, products) => {
+      if (err) {
+        console.error('Category filter error:', err);
+        req.flash('error', 'Error retrieving products by category.');
+        return res.redirect('/shopping');
+      }
+      res.render('shopping', { products, query: '' });
+    });
+    return;
+  }
+
+  // Case 3: No filter
+  Product.getAll((err, products) => {
+    if (err) {
+      console.error('Product list error:', err);
+      req.flash('error', 'Error retrieving products.');
+      return res.redirect('/shopping');
     }
+    res.render('shopping', { products, query: '' });
+  });
 };
 
 // =======================
 // SHOW SINGLE PRODUCT
 // =======================
 const getProduct = (req, res) => {
-    const id = req.params.id;
+  Product.getById(req.params.id, (err, results) => {
+    if (err) {
+      console.error('Get product error:', err);
+      req.flash('error', 'Error retrieving product.');
+      return res.redirect('/inventory');
+    }
+    if (results.length === 0) {
+      req.flash('error', 'Product not found.');
+      return res.redirect('/inventory');
+    }
 
-    Product.getById(id, (err, results) => {
-        if (err) return res.status(500).send("Error retrieving product");
-
-        if (results.length === 0) {
-            return res.status(404).send("Product not found");
-        }
-
-        res.render('product', {
-            product: results[0],
-            user: req.session.user
-        });
+    res.render('product', {
+      product: results[0]
     });
+  });
 };
 
 // =======================
 // SHOW ADD PRODUCT FORM
 // =======================
 const addForm = (req, res) => {
-    res.render('addProduct', { user: req.session.user });
+  res.render('addProduct', {
+    categories
+  });
 };
 
 // =======================
-// ADD PRODUCT (POST)
+// ADD PRODUCT
 // =======================
 const addProduct = (req, res) => {
-    const { name, quantity, price } = req.body;
+  const data = {
+    productName: req.body.name,
+    quantity: Number(req.body.quantity || 0),
+    price: Number(req.body.price || 0),
+    image: req.file ? req.file.filename : null,
+    category: req.body.category || null
+  };
 
-    const productData = {
-        productName: name,
-        quantity: quantity,
-        price: price,
-        image: req.file ? req.file.filename : null
-    };
-
-    Product.add(productData, (err) => {
-        if (err) return res.status(500).send('Error adding product');
-        res.redirect('/inventory');
-    });
+  Product.add(data, (err) => {
+    if (err) {
+      console.error('Add product error:', err);
+      req.flash('error', 'Error adding product.');
+      return res.redirect('/addProduct');
+    }
+    req.flash('success', 'Product added successfully.');
+    res.redirect('/inventory');
+  });
 };
 
 // =======================
 // SHOW UPDATE PRODUCT FORM
 // =======================
 const updateForm = (req, res) => {
-    const id = req.params.id;
+  Product.getById(req.params.id, (err, rows) => {
+    if (err) {
+      console.error('Load product error:', err);
+      req.flash('error', 'Error loading product.');
+      return res.redirect('/inventory');
+    }
+    if (!rows.length) {
+      req.flash('error', 'Product not found.');
+      return res.redirect('/inventory');
+    }
 
-    Product.getById(id, (err, results) => {
-        if (err) return res.status(500).send("Error retrieving product");
-
-        if (results.length === 0) {
-            return res.status(404).send("Product not found");
-        }
-
-        res.render('updateProduct', { product: results[0], user: req.session.user });
+    res.render('updateProduct', {
+      product: rows[0],
+      categories
     });
+  });
 };
 
 // =======================
-// UPDATE PRODUCT (POST)
+// UPDATE PRODUCT
 // =======================
 const updateProduct = (req, res) => {
-    const id = req.params.id;
-    const { name, quantity, price } = req.body;
+  const id = req.params.id;
+  const data = {
+    productName: req.body.name,
+    quantity: Number(req.body.quantity || 0),
+    price: Number(req.body.price || 0),
+    image: req.file ? req.file.filename : req.body.existingImage,
+    category: req.body.category || null
+  };
 
-    const productData = {
-        productName: name,
-        quantity: quantity,
-        price: price,
-        image: req.file ? req.file.filename : req.body.currentImage
-    };
-
-    Product.update(id, productData, (err) => {
-        if (err) return res.status(500).send('Error updating product');
-        res.redirect('/inventory');
-    });
+  Product.update(id, data, (err) => {
+    if (err) {
+      console.error('Update product error:', err);
+      req.flash('error', 'Error updating product.');
+      return res.redirect('/updateProduct/' + id);
+    }
+    req.flash('success', 'Product updated successfully.');
+    res.redirect('/inventory');
+  });
 };
 
 // =======================
 // DELETE PRODUCT
 // =======================
 const deleteProduct = (req, res) => {
-    const id = req.params.id;
-
-    Product.delete(id, (err) => {
-        if (err) return res.status(500).send('Error deleting product');
-        res.redirect('/inventory');
-    });
+  Product.delete(req.params.id, (err) => {
+    if (err) {
+      console.error('Delete product error:', err);
+      req.flash('error', 'Error deleting product.');
+      return res.redirect('/inventory');
+    }
+    req.flash('info', 'Product deleted.');
+    res.redirect('/inventory');
+  });
 };
 
 // =======================
-// ADD TO CART
+// ADD TO CART (utility if needed elsewhere)
 // =======================
 const getProductForCart = (productId, quantity, req, res) => {
-    Product.getById(productId, (err, results) => {
-        if (err) return res.status(500).send("Error retrieving product");
+  Product.getById(productId, (err, results) => {
+    if (err) {
+      console.error('Get product for cart error:', err);
+      req.flash('error', 'Error retrieving product.');
+      return res.redirect('/shopping');
+    }
+    if (!results.length) {
+      req.flash('error', 'Product not found.');
+      return res.redirect('/shopping');
+    }
 
-        if (results.length > 0) {
-            const product = results[0];
+    const product = results[0];
 
-            if (!req.session.cart) req.session.cart = [];
+    if (!req.session.cart) req.session.cart = [];
 
-            const existing = req.session.cart.find(item => item.productId === productId);
+    const existing = req.session.cart.find((item) => item.productId === productId);
 
-            if (existing) {
-                existing.quantity += quantity;
-            } else {
-                req.session.cart.push({
-                    productId: product.id,
-                    productName: product.productName,
-                    price: product.price,
-                    quantity: quantity,
-                    image: product.image
-                });
-            }
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      req.session.cart.push({
+        productId: product.id,
+        productName: product.productName,
+        price: product.price,
+        quantity,
+        image: product.image
+      });
+    }
 
-            return res.redirect('/cart');
-        } else {
-            return res.status(404).send("Product not found");
-        }
-    });
+    req.flash('success', `${product.productName} added to cart.`);
+    res.redirect('/cart');
+  });
 };
 
-// =======================
-// EXPORT FUNCTIONS
-// =======================
 module.exports = {
-    inventory,
-    shopping,
-    getProduct,
-    addForm,
-    addProduct,
-    updateForm,
-    updateProduct,
-    deleteProduct,
-    getProductForCart
+  inventory,
+  shopping,
+  getProduct,
+  addForm,
+  addProduct,
+  updateForm,
+  updateProduct,
+  deleteProduct,
+  getProductForCart
 };

@@ -2,57 +2,159 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Checkout</title>
+  <title>Confirm Purchase</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .card-preserve { min-height: 140px; }
+    .order-summary .table td, .order-summary .table th { vertical-align: middle; }
+    .pay-btn { width: 100%; }
+    .billing-card small { color: #666; }
+  </style>
 </head>
 <body>
-
   <%- include('partials/navbar') %>
 
-  <div class="container mt-5">
+  <div class="container my-5">
+    <div class="row g-4">
 
-    <h1 class="mb-4">Checkout</h1>
+      <!-- LEFT: Billing / Items / Payment -->
+      <div class="col-lg-8">
 
-    <% if (cart.length === 0) { %>
-      <p>Your cart is empty. <a href="/shopping">Go back to shop</a>.</p>
-    <% } else { %>
+        <h2 class="mb-3">Confirm Purchase</h2>
+        <p class="text-muted">Please review your order before confirming.</p>
 
-      <table class="table table-striped">
-        <thead class="table-dark">
-          <tr>
-            <th>Product</th>
-            <th>Qty</th>
-            <th>Price</th>
-            <th>Total</th>
-          </tr>
-        </thead>
+        <div class="row g-3 mb-4">
+          <div class="col-md-7">
+            <div class="card billing-card p-3 card-preserve">
+              <h6 class="mb-2">Bill to</h6>
+              <div>
+                <strong><%= user && user.name ? user.name : 'Guest' %></strong><br>
+                <small><%= user && user.email ? user.email : '' %></small><br>
+                <small><%= user && user.address ? user.address : '' %></small><br>
+                <small>Contact <%= user && user.contact ? user.contact : '' %></small>
+              </div>
+            </div>
+          </div>
 
-        <tbody>
-          <% cart.forEach(item => { %>
-            <tr>
-              <td><%= item.productName %></td>
-              <td><%= item.quantity %></td>
-              <td>$<%= item.price.toFixed(2) %></td>
-              <td>$<%= (item.price * item.quantity).toFixed(2) %></td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
+          <div class="col-md-5">
+            <div class="card p-3 card-preserve">
+              <div class="d-flex justify-content-between">
+                <div>
+                  <small class="text-muted">Order date</small><br>
+                  <strong><%= orderDateString %></strong>
+                </div>
+                <div class="text-end">
+                  <small class="text-muted">Payment method</small><br>
+                  <strong><%= paymentMethodDisplay %></strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-      <h3 class="text-end">Grand Total: $<%= grandTotal.toFixed(2) %></h3>
+        <!-- Products table -->
+        <div class="card mb-4">
+          <div class="card-body p-0">
+            <table class="table mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:40px">#</th>
+                  <th>Product</th>
+                  <th class="text-end">Unit</th>
+                  <th class="text-center">Quantity</th>
+                  <th class="text-end">Line total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% cart.forEach((item, idx) => { %>
+                  <tr>
+                    <td><%= idx + 1 %></td>
+                    <td class="d-flex align-items-center gap-3">
+                      <% if (item.image) { %>
+                        <img src="/images/<%= item.image %>" alt="" style="height:40px;width:auto;">
+                      <% } %>
+                      <div><strong><%= item.productName %></strong></div>
+                    </td>
+                    <td class="text-end">$<%= Number(item.price || 0).toFixed(2) %></td>
+                    <td class="text-center"><%= Number(item.quantity || 0) %></td>
+                    <td class="text-end">$<%= (Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2) %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-      <div class="mt-4 d-flex justify-content-between">
-        <a href="/cart" class="btn btn-secondary">Back to Cart</a>
+        <!-- Payment options -->
+        <div class="card p-3">
+          <h6>Payment</h6>
+          <form id="payment-form">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="pmethod" id="pm-card" value="card" <%= paymentMethod === 'card' ? 'checked' : '' %>>
+              <label class="form-check-label" for="pm-card">Credit/Debit card</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="pmethod" id="pm-contactless" value="contactless" <%= paymentMethod === 'contactless' ? 'checked' : '' %>>
+              <label class="form-check-label" for="pm-contactless">Contactless payment (Apple Pay)</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="pmethod" id="pm-paynow" value="paynow" <%= paymentMethod === 'paynow' ? 'checked' : '' %>>
+              <label class="form-check-label" for="pm-paynow">PayNow <small class="d-block text-muted">UEN: 20241234A</small></label>
+            </div>
+          </form>
+        </div>
 
-        <form action="/checkout" method="POST">
-          <button type="submit" class="btn btn-success">Place Order</button>
-        </form>
       </div>
 
-    <% } %>
+      <!-- RIGHT: Order summary -->
+      <div class="col-lg-4">
+        <div class="card order-summary p-3">
+          <h5 class="mb-3">Order summary</h5>
 
+          <table class="table table-borderless">
+            <tbody>
+              <tr>
+                <td>Subtotal</td>
+                <td class="text-end">$<%= subtotal.toFixed(2) %></td>
+              </tr>
+              <tr>
+                <td>Tax</td>
+                <td class="text-end">$<%= tax.toFixed(2) %></td>
+              </tr>
+              <tr>
+                <td>Shipping</td>
+                <td class="text-end">$<%= shipping.toFixed(2) %></td>
+              </tr>
+              <tr class="border-top">
+                <th>Total</th>
+                <th class="text-end">$<%= total.toFixed(2) %></th>
+              </tr>
+            </tbody>
+          </table>
+
+          <form action="/checkout" method="POST">
+            <input type="hidden" name="paymentMethod" id="form-payment-method" value="<%= paymentMethod %>">
+            <button type="submit" class="btn btn-success pay-btn mb-2">Confirm &amp; Pay</button>
+          </form>
+
+          <a href="/cart" class="btn btn-outline-secondary pay-btn">Edit Cart</a>
+        </div>
+      </div>
+
+    </div>
   </div>
 
   <%- include('partials/footer') %>
+
+  <script>
+    // sync radio selection into hidden form field
+    document.querySelectorAll('input[name="pmethod"]').forEach(r => {
+      r.addEventListener('change', () => {
+        const hidden = document.getElementById('form-payment-method');
+        if (hidden) hidden.value = r.value;
+      });
+    });
+  </script>
+
 </body>
 </html>

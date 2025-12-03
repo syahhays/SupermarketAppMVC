@@ -2,6 +2,7 @@ const express = require('express');
 const session = require('express-session');
 const flash = require('connect-flash');
 const multer = require('multer');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -43,7 +44,7 @@ const upload = multer({ storage: storage });
 // View Engine + Middleware
 // =========================
 app.set('view engine', 'ejs');
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: false }));
 
 app.use(
@@ -57,18 +58,27 @@ app.use(
 
 app.use(flash());
 
+// 🔹 Global locals: make user + flash messages available in ALL views
+app.use((req, res, next) => {
+  res.locals.user = req.session.user || null;
+  res.locals.successMessages = req.flash('success');
+  res.locals.errorMessages = req.flash('error');
+  res.locals.infoMessages = req.flash('info');
+  next();
+});
+
 // =========================
 // Authentication
 // =========================
 const checkAuthenticated = (req, res, next) => {
   if (req.session.user) return next();
-  req.flash('error', 'Please log in');
+  req.flash('error', 'Please log in.');
   res.redirect('/login');
 };
 
 const checkAdmin = (req, res, next) => {
   if (req.session.user && req.session.user.role === 'admin') return next();
-  req.flash('error', 'Access denied');
+  req.flash('error', 'Access denied. Admin only.');
   res.redirect('/');
 };
 
@@ -79,13 +89,13 @@ const validateRegistration = (req, res, next) => {
   const { username, email, password, address, contact, role } = req.body;
 
   if (!username || !email || !password || !address || !contact || !role) {
-    req.flash('error', 'All fields required');
+    req.flash('error', 'All fields are required.');
     req.flash('formData', req.body);
     return res.redirect('/register');
   }
 
   if (password.length < 6) {
-    req.flash('error', 'Password too short');
+    req.flash('error', 'Password must be at least 6 characters.');
     req.flash('formData', req.body);
     return res.redirect('/register');
   }

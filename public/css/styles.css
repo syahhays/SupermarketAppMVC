@@ -1,5 +1,67 @@
-/* ...existing code... */
-#product-search { min-width: 220px; }
-#search-suggestions { max-height: 260px; overflow:auto; }
-/* make suggestion items a bit tighter */
-#search-suggestions .list-group-item { padding: 6px 10px; }
+/* === Groceria: Home Categories === */
+
+.category-grid {
+  margin-top: 0.25rem;
+  margin-bottom: 2.5rem;
+}
+
+.category-card {
+  background: #ffffff;
+  border-radius: 0.9rem;
+  padding: 0.9rem 0.5rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
+  border: 1px solid #f1f3f5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.category-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.08);
+  border-color: #cce5ff;
+}
+
+.category-icon {
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.category-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #212529;
+  text-align: center;
+}
+
+.category-sub {
+  font-size: 0.75rem;
+  color: #6c757d;
+  text-align: center;
+}
+
+/* tighten layout on small screens */
+@media (max-width: 576px) {
+  .category-card {
+    padding: 0.75rem 0.4rem;
+  }
+  .category-label {
+    font-size: 0.85rem;
+  }
+  .category-sub {
+    font-size: 0.7rem;
+  }
+}
+
+/* === Fix Groceria Logo Size on Homepage === */
+.hero-logo {
+  width: 140px;  
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto 1rem;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.06));
+}
