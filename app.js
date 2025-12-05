@@ -11,37 +11,34 @@ const app = express();
 const ProductController = require('./controllers/ProductController');
 const UserController = require('./controllers/UserController');
 const CartController = require('./controllers/CartController');
-const Product = require('./models/Product'); // already present
+const Product = require('./models/Product');
 
-// Suggest endpoint for autocomplete
+// =========================
+// AUTOSUGGEST API
+// =========================
 app.get('/api/products/suggest', (req, res) => {
-  const q = (req.query.q || '').toString().trim();
+  const q = (req.query.q || '').trim();
   const limit = parseInt(req.query.limit, 10) || 8;
+
   if (!q) return res.json([]);
+
   Product.searchSuggest(q, limit, (err, rows) => {
-    if (err) {
-      console.error('Suggest error:', err);
-      return res.status(500).json([]);
-    }
+    if (err) return res.status(500).json([]);
     res.json(rows || []);
   });
 });
 
 // =========================
-// Multer (image upload)
+// MULTER (IMAGE UPLOAD)
 // =========================
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'public/images');
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
-  }
+  destination: (req, file, cb) => cb(null, 'public/images'),
+  filename: (req, file, cb) => cb(null, file.originalname)
 });
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
 // =========================
-// View Engine + Middleware
+// VIEW ENGINE + MIDDLEWARE
 // =========================
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')));
@@ -58,7 +55,7 @@ app.use(
 
 app.use(flash());
 
-// 🔹 Global locals: make user + flash messages available in ALL views
+// GLOBAL TEMPLATE VARIABLES
 app.use((req, res, next) => {
   res.locals.user = req.session.user || null;
   res.locals.successMessages = req.flash('success');
@@ -68,7 +65,7 @@ app.use((req, res, next) => {
 });
 
 // =========================
-// Authentication
+// AUTH MIDDLEWARES
 // =========================
 const checkAuthenticated = (req, res, next) => {
   if (req.session.user) return next();
@@ -83,7 +80,7 @@ const checkAdmin = (req, res, next) => {
 };
 
 // =========================
-// Registration Validation
+// REGISTRATION VALIDATION
 // =========================
 const validateRegistration = (req, res, next) => {
   const { username, email, password, address, contact, role } = req.body;
@@ -107,10 +104,10 @@ const validateRegistration = (req, res, next) => {
 // ROUTES
 // =========================
 
-// Home
+// HOME
 app.get('/', UserController.home);
 
-// Products
+// PRODUCT PAGES
 app.get('/inventory', checkAuthenticated, checkAdmin, ProductController.inventory);
 app.get('/shopping', checkAuthenticated, ProductController.shopping);
 app.get('/product/:id', checkAuthenticated, ProductController.getProduct);
@@ -121,9 +118,10 @@ app.post('/addProduct', checkAuthenticated, checkAdmin, upload.single('image'), 
 app.get('/updateProduct/:id', checkAuthenticated, checkAdmin, ProductController.updateForm);
 app.post('/updateProduct/:id', checkAuthenticated, checkAdmin, upload.single('image'), ProductController.updateProduct);
 
-app.get('/deleteProduct/:id', checkAuthenticated, checkAdmin, ProductController.deleteProduct);
+// ❌ REMOVED (CAUSED ERROR)
+// app.get('/deleteProduct/:id', checkAuthenticated, checkAdmin, ProductController.deleteProduct);
 
-// User
+// USER AUTH
 app.get('/register', UserController.showRegister);
 app.post('/register', validateRegistration, UserController.register);
 
@@ -132,7 +130,7 @@ app.post('/login', UserController.login);
 
 app.get('/logout', UserController.logout);
 
-// Cart
+// CART
 app.post('/add-to-cart/:id', checkAuthenticated, CartController.addToCart);
 app.get('/cart', checkAuthenticated, CartController.viewCart);
 
@@ -140,19 +138,22 @@ app.post('/cart/update/:productId', checkAuthenticated, CartController.updateQua
 app.get('/cart/remove/:productId', checkAuthenticated, CartController.removeItem);
 app.get('/cart/clear', checkAuthenticated, CartController.clearCart);
 
-// Checkout + Orders
+// CHECKOUT + ORDERS
 app.get('/checkout', checkAuthenticated, CartController.checkoutPage);
 app.post('/checkout', checkAuthenticated, CartController.placeOrder);
 
 app.get('/orders', checkAuthenticated, CartController.orderHistory);
 app.get('/orders/:id', checkAuthenticated, CartController.orderDetails);
 
-// Admin Order Management
+// ADMIN ORDER MGMT
 app.get('/admin/orders', checkAuthenticated, checkAdmin, CartController.adminOrders);
 app.get('/admin/orders/:id', checkAuthenticated, checkAdmin, CartController.adminOrderDetails);
 
-// Admin Routes
+// ADMIN ROUTES
 app.use('/admin', require('./routes/admin'));
+
+// ENABLE / DISABLE PRODUCT ROUTES
+app.use('/', require('./routes/product'));   
 
 // =========================
 // SERVER

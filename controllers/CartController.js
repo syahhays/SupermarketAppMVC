@@ -25,6 +25,13 @@ const addToCart = (req, res) => {
 
     const product = results[0];
 
+    // ❗ Block if product is inactive or no stock
+    if (!product.isActive || Number(product.quantity) <= 0) {
+      req.flash('error', 'Sorry, this product is unavailable or out of stock.');
+      return res.redirect('/shopping');
+    }
+
+
     if (!req.session.cart) req.session.cart = [];
     req.session.cart = CartItem.addItem(req.session.cart, product, quantity);
 

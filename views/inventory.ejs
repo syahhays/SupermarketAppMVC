@@ -25,31 +25,69 @@
           <th>Product Image</th>
           <th>Quantity</th>
           <th>Price</th>
-          <th>Category</th> <!-- NEW -->
+          <th>Category</th>
           <th>Edit</th>
-          <th>Delete</th>
+          <th>Status / Actions</th>
         </tr>
       </thead>
 
       <tbody>
-        <% products.forEach(product => { %>
-          <tr>
-            <td><a href="/product/<%= product.id %>"><%= product.productName %></a></td>
-            <td><img src="/images/<%= product.image %>" width="60"></td>
+        <% products.forEach(product => {
+            const unavailable = (!product.isActive || product.quantity <= 0);
+        %>
+          <tr class="<%= unavailable ? 'table-secondary opacity-50' : '' %>">
+
+            <!-- PRODUCT NAME -->
+            <td><%= product.productName %></td>
+
+            <!-- PRODUCT IMAGE (FIXED) -->
+            <td>
+              <% if (product.image) { %>
+                <img src="/images/<%= product.image %>"
+                     style="width: 60px; height: 60px; object-fit: cover; border-radius: 5px;">
+              <% } else { %>
+                <span class="text-muted">No Image</span>
+              <% } %>
+            </td>
+
+            <!-- QUANTITY -->
             <td><%= product.quantity %></td>
-            <td>$<%= product.price.toFixed(2) %></td>
 
-            <!-- CATEGORY BADGE -->
+            <!-- PRICE -->
+            <td>$<%= product.price %></td>
+
+            <!-- CATEGORY -->
+            <td><%= product.category %></td>
+
+            <!-- EDIT BUTTON -->
             <td>
-              <span class="badge bg-primary">
-                <%= product.category %>
-              </span>
+              <a href="/updateProduct/<%= product.id %>"
+                class="btn btn-sm btn-outline-primary"
+                title="Edit Product">
+                ✏️
+              </a>
             </td>
 
-            <td><a href="/updateProduct/<%= product.id %>">Edit</a></td>
+            <!-- STATUS & ACTIONS -->
             <td>
-              <a href="/deleteProduct/<%= product.id %>" onclick="return confirm('Delete this product?')">Delete</a>
+              <% if (unavailable) { %>
+                <span class="badge bg-secondary me-2">Unavailable</span>
+                <a href="/product/<%= product.id %>/enable"
+                  class="btn btn-sm btn-outline-success"
+                  title="Mark as Available">
+                  ✔
+                </a>
+
+              <% } else { %>
+                <span class="badge bg-success me-2">Active</span>
+                <a href="/product/<%= product.id %>/disable"
+                  class="btn btn-sm btn-outline-warning"
+                  title="Mark as Unavailable">
+                  🚫
+                </a>
+              <% } %>
             </td>
+
           </tr>
         <% }) %>
       </tbody>

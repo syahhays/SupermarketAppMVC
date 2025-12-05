@@ -34,7 +34,6 @@ const shopping = (req, res) => {
   const q = (req.query.q || '').trim();
   const category = (req.query.category || '').trim();
 
-  // Case 1: Search
   if (q.length > 0) {
     Product.search(q, (err, products) => {
       if (err) {
@@ -47,7 +46,6 @@ const shopping = (req, res) => {
     return;
   }
 
-  // Case 2: Category filter
   if (category.length > 0) {
     Product.getByCategory(category, (err, products) => {
       if (err) {
@@ -60,7 +58,6 @@ const shopping = (req, res) => {
     return;
   }
 
-  // Case 3: No filter
   Product.getAll((err, products) => {
     if (err) {
       console.error('Product list error:', err);
@@ -86,9 +83,7 @@ const getProduct = (req, res) => {
       return res.redirect('/inventory');
     }
 
-    res.render('product', {
-      product: results[0]
-    });
+    res.render('product', { product: results[0] });
   });
 };
 
@@ -96,9 +91,7 @@ const getProduct = (req, res) => {
 // SHOW ADD PRODUCT FORM
 // =======================
 const addForm = (req, res) => {
-  res.render('addProduct', {
-    categories
-  });
+  res.render('addProduct', { categories });
 };
 
 // =======================
@@ -139,10 +132,7 @@ const updateForm = (req, res) => {
       return res.redirect('/inventory');
     }
 
-    res.render('updateProduct', {
-      product: rows[0],
-      categories
-    });
+    res.render('updateProduct', { product: rows[0], categories });
   });
 };
 
@@ -171,55 +161,38 @@ const updateProduct = (req, res) => {
 };
 
 // =======================
-// DELETE PRODUCT
+// DISABLE PRODUCT
 // =======================
-const deleteProduct = (req, res) => {
-  Product.delete(req.params.id, (err) => {
+const disableProduct = (req, res) => {
+  const id = req.params.id;
+
+  Product.markInactive(id, (err) => {
     if (err) {
-      console.error('Delete product error:', err);
-      req.flash('error', 'Error deleting product.');
+      console.error('Disable product error:', err);
+      req.flash('error', 'Error disabling product.');
       return res.redirect('/inventory');
     }
-    req.flash('info', 'Product deleted.');
+
+    req.flash('info', 'Product marked as Unavailable.');
     res.redirect('/inventory');
   });
 };
 
 // =======================
-// ADD TO CART (utility if needed elsewhere)
+// ENABLE PRODUCT
 // =======================
-const getProductForCart = (productId, quantity, req, res) => {
-  Product.getById(productId, (err, results) => {
+const enableProduct = (req, res) => {
+  const id = req.params.id;
+
+  Product.markActive(id, (err) => {
     if (err) {
-      console.error('Get product for cart error:', err);
-      req.flash('error', 'Error retrieving product.');
-      return res.redirect('/shopping');
-    }
-    if (!results.length) {
-      req.flash('error', 'Product not found.');
-      return res.redirect('/shopping');
+      console.error('Enable product error:', err);
+      req.flash('error', 'Error enabling product.');
+      return res.redirect('/inventory');
     }
 
-    const product = results[0];
-
-    if (!req.session.cart) req.session.cart = [];
-
-    const existing = req.session.cart.find((item) => item.productId === productId);
-
-    if (existing) {
-      existing.quantity += quantity;
-    } else {
-      req.session.cart.push({
-        productId: product.id,
-        productName: product.productName,
-        price: product.price,
-        quantity,
-        image: product.image
-      });
-    }
-
-    req.flash('success', `${product.productName} added to cart.`);
-    res.redirect('/cart');
+    req.flash('success', 'Product marked as Active.');
+    res.redirect('/inventory');
   });
 };
 
@@ -231,6 +204,6 @@ module.exports = {
   addProduct,
   updateForm,
   updateProduct,
-  deleteProduct,
-  getProductForCart
+  enableProduct,
+  disableProduct
 };
