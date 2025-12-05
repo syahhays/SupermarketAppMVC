@@ -15,32 +15,121 @@
 
   <div class="container mt-4">
 
-    <!-- HEADER + SEARCH -->
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <!-- TITLE + SEARCH -->
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
       <h2 class="m-0">Groceria Shop</h2>
 
       <form class="d-flex" method="GET" action="/shopping" style="width: 270px;">
-        <input class="form-control me-2" type="search" name="q" placeholder="Search products..." value="<%= query %>">
+        <input class="form-control me-2" 
+               type="search"
+               name="q"
+               placeholder="Search products..."
+               value="<%= query %>">
         <button class="btn btn-outline-primary">Search</button>
       </form>
     </div>
 
+    <!-- CATEGORY LIST -->
+    <div class="text-center my-4">
+      <h5 class="mb-3">Shop by Category</h5>
+
+      <div class="row g-3 justify-content-center category-grid">
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=fresh-produce" class="category-card">
+            <div class="category-icon">🥦</div>
+            <div class="category-label">Fresh Produce</div>
+            <div class="category-sub">Fruits & Veg</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=meat-poultry" class="category-card">
+            <div class="category-icon">🍗</div>
+            <div class="category-label">Meat & Poultry</div>
+            <div class="category-sub">Beef, Chicken</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=seafood" class="category-card">
+            <div class="category-icon">🐟</div>
+            <div class="category-label">Seafood</div>
+            <div class="category-sub">Fish & More</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=dairy-eggs" class="category-card">
+            <div class="category-icon">🧀</div>
+            <div class="category-label">Dairy & Eggs</div>
+            <div class="category-sub">Milk, Cheese</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=frozen" class="category-card">
+            <div class="category-icon">❄️</div>
+            <div class="category-label">Frozen</div>
+            <div class="category-sub">Frozen Meals</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=snacks" class="category-card">
+            <div class="category-icon">🍪</div>
+            <div class="category-label">Snacks</div>
+            <div class="category-sub">Chips, Cookies</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=household" class="category-card">
+            <div class="category-icon">🧴</div>
+            <div class="category-label">Household</div>
+            <div class="category-sub">Cleaning</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=bakery" class="category-card">
+            <div class="category-icon">🥖</div>
+            <div class="category-label">Bakery</div>
+            <div class="category-sub">Bread, Pastries</div>
+          </a>
+        </div>
+
+        <div class="col-4 col-md-2">
+          <a href="/shopping?category=beverages" class="category-card">
+            <div class="category-icon">🥤</div>
+            <div class="category-label">Beverages</div>
+            <div class="category-sub">Drinks</div>
+          </a>
+        </div>
+
+      </div>
+    </div>
+
     <hr class="mb-4">
+
 
     <!-- PRODUCT GRID -->
     <div class="row g-3 product-grid">
 
-      <% products.forEach(product => {
-          const unavailable = (!product.isActive || product.quantity <= 0);
+      <% products.forEach(product => { 
+          const available = product.availableQty ?? product.quantity;
+          const unavailable = !product.isAvailable || available <= 0;
       %>
 
         <div class="col-6 col-md-4 col-lg-3">
           <div class="product-card">
 
-            <!-- IMAGE WRAPPER (IMPORTANT!!) -->
+            <!-- IMAGE WRAPPER -->
             <div class="product-img-box">
               <% if (product.image) { %>
-                <img src="/images/<%= product.image %>" class="product-img" alt="<%= product.productName %>">
+                <img src="/images/<%= product.image %>"
+                     class="product-img"
+                     alt="<%= product.productName %>">
               <% } else { %>
                 <img src="/images/placeholder.png" class="product-img">
               <% } %>
@@ -50,23 +139,42 @@
             <div class="product-name"><%= product.productName %></div>
 
             <!-- PRICE -->
-            <div class="product-price">$<%= product.price.toFixed(2) %></div>
+            <div class="product-price">
+              $<%= Number(product.price).toFixed(2) %>
+            </div>
 
-            <!-- STOCK BADGE -->
+
             <% if (unavailable) { %>
+
+              <!-- UNAVAILABLE -->
               <span class="badge bg-secondary stock-badge">Unavailable</span>
-            <% } else { %>
-              <span class="badge bg-success stock-badge"><%= product.quantity %> in stock</span>
-            <% } %>
+              <button class="btn btn-secondary btn-sm w-100 add-cart-btn" disabled>
+                Unavailable
+              </button>
 
-            <!-- BUTTON -->
-            <% if (unavailable) { %>
-              <button class="btn btn-secondary btn-sm add-cart-btn" disabled>Unavailable</button>
             <% } else { %>
-              <form method="POST" action="/add-to-cart/<%= product.id %>">
-                <input type="hidden" name="quantity" value="1">
-                <button class="btn btn-primary btn-sm add-cart-btn">Add to Cart</button>
+
+              <!-- AVAILABLE: SHOW STOCK -->
+              <span class="badge bg-success stock-badge"><%= available %> in stock</span>
+
+              <form method="POST" action="/add-to-cart/<%= product.id %>" class="mt-2">
+
+                <div class="input-group input-group-sm mb-2">
+                  <input
+                    type="number"
+                    name="quantity"
+                    class="form-control text-center"
+                    value="1"
+                    min="1"
+                    max="<%= available %>"
+                    style="max-width: 70px;">
+                </div>
+
+                <button class="btn btn-primary btn-sm w-100 add-cart-btn">
+                  Add to Cart
+                </button>
               </form>
+
             <% } %>
 
           </div>
@@ -75,6 +183,7 @@
       <% }) %>
 
     </div>
+
   </div>
 
 </body>

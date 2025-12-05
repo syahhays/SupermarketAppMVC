@@ -1,98 +1,76 @@
-<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-3">
-  <div class="container">
-    <a class="navbar-brand me-4" href="/">Groceria</a>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-3">
+  <a class="navbar-brand" href="/">Groceria</a>
 
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
+  <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navBarContent">
+    <span class="navbar-toggler-icon"></span>
+  </button>
 
-    <div class="collapse navbar-collapse" id="navbarNav">
+  <div class="collapse navbar-collapse" id="navBarContent">
 
-      <!-- LEFT LINKS -->
-      <ul class="navbar-nav me-auto align-items-lg-center">
-        <% if (user) { %>
+    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
 
-          <% if (!(user.role && user.role.toString().toLowerCase().trim() === 'admin')) { %>
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/shopping">Shop</a>
-            </li>
+      <% if (user) { %>
 
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/cart">Cart</a>
-            </li>
-
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/orders">My Orders</a>
-            </li>
-          <% } else { %>
-            <!-- admin links -->
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/inventory">Inventory</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/addProduct">Add Product</a>
-            </li>
-            <li class="nav-item">
-              <a class="nav-link px-3" href="/admin/orders">All Orders</a>
-            </li>
-          <% } %>
-
-        <% } %>
-      </ul>
-
-      <!-- RIGHT AUTH -->
-      <ul class="navbar-nav ms-auto align-items-center">
-        <% if (user) { %>
-          <li class="nav-item me-3">
-            <span class="navbar-text text-light small">
-              Welcome, <strong><%= user.username %></strong>
-              <span class="text-muted">(<%= user.role %>)</span>
-            </span>
+        <% if (user.role === "admin") { %>
+          <!-- ADMIN NAV -->
+          <li class="nav-item">
+            <a class="nav-link" href="/inventory">Inventory</a>
           </li>
 
           <li class="nav-item">
-            <a class="btn btn-outline-light btn-sm" href="/logout">Logout</a>
+            <a class="nav-link" href="/addProduct">Add Product</a>
           </li>
+
+          <li class="nav-item">
+            <a class="nav-link" href="/admin/orders">Admin Orders</a>
+          </li>
+
         <% } else { %>
-          <li class="nav-item me-2">
-            <a class="btn btn-outline-light btn-sm" href="/login">Login</a>
+          <!-- CUSTOMER NAV (any non-admin user) -->
+          <li class="nav-item">
+            <a class="nav-link" href="/shopping">Shop</a>
           </li>
 
           <li class="nav-item">
-            <a class="btn btn-primary btn-sm" href="/register">Register</a>
+            <a class="nav-link" href="/cart">
+              My Cart
+              <% if (cartCount > 0) { %>
+                <span class="badge bg-danger"><%= cartCount %></span>
+              <% } %>
+            </a>
+          </li>
+
+          <li class="nav-item">
+            <a class="nav-link" href="/orders">My Orders</a>
           </li>
         <% } %>
-      </ul>
 
-    </div>
+      <% } %>
+
+    </ul>
+
+    <ul class="navbar-nav ms-auto">
+
+      <% if (!user) { %>
+        <li class="nav-item">
+          <a class="nav-link" href="/login">Login</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/register">Register</a>
+        </li>
+
+      <% } else { %>
+        <span class="navbar-text me-3">
+          Welcome, <%= user.username %>
+          <% if (user.role === "admin") { %> (admin)<% } %>
+        </span>
+
+        <li class="nav-item">
+          <a class="btn btn-outline-light btn-sm" href="/logout">Logout</a>
+        </li>
+      <% } %>
+
+    </ul>
+
   </div>
 </nav>
-
-<div class="container">
-  <% if (successMessages && successMessages.length) { %>
-    <% successMessages.forEach(function(msg) { %>
-      <div class="alert alert-success alert-dismissible fade show py-2" role="alert">
-        <%= msg %>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-    <% }) %>
-  <% } %>
-
-  <% if (errorMessages && errorMessages.length) { %>
-    <% errorMessages.forEach(function(msg) { %>
-      <div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
-        <%= msg %>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-    <% }) %>
-  <% } %>
-
-  <% if (infoMessages && infoMessages.length) { %>
-    <% infoMessages.forEach(function(msg) { %>
-      <div class="alert alert-info alert-dismissible fade show py-2" role="alert">
-        <%= msg %>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-    <% }) %>
-  <% } %>
-</div>

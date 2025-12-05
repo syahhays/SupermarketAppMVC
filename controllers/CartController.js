@@ -1,67 +1,106 @@
+// controllers/CartController.js
 const Product = require('../models/Product');
 const CartItem = require('../models/CartItem');
 const Order = require('../models/Order');
 const OrderItem = require('../models/OrderItem');
 const util = require('util');
 
-const TAX_RATE = 0.07;      // 7% tax (adjust)
-const SHIPPING_FLAT = 5.0;  // flat shipping
+const TAX_RATE = 0.07;       // 7%
+const SHIPPING_FLAT = 5.0;   // flat shipping fee
 
-// ADD TO CART
+/* =========================================================
+   ADD TO CART — respects stock & cart content
+   ========================================================= */
 const addToCart = (req, res) => {
   const productId = parseInt(req.params.id);
-  const quantity = parseInt(req.body.quantity) || 1;
+  const requestedQty = parseInt(req.body.quantity) || 1;
 
   Product.getById(productId, (err, results) => {
-    if (err) {
+    if (err || !results || results.length === 0) {
       console.error('Add to cart error:', err);
-      req.flash('error', 'Error retrieving product.');
-      return res.redirect('/shopping');
-    }
-    if (results.length === 0) {
       req.flash('error', 'Product not found.');
       return res.redirect('/shopping');
     }
 
     const product = results[0];
+    const dbQty = Number(product.quantity || 0);
 
-    // ❗ Block if product is inactive or no stock
-    if (!product.isActive || Number(product.quantity) <= 0) {
+    if (!product.isActive || dbQty <= 0) {
       req.flash('error', 'Sorry, this product is unavailable or out of stock.');
       return res.redirect('/shopping');
     }
 
-
     if (!req.session.cart) req.session.cart = [];
-    req.session.cart = CartItem.addItem(req.session.cart, product, quantity);
+    const cart = req.session.cart;
+
+    const existing = cart.find((i) => i.productId === productId);
+    const inCart = existing ? Number(existing.quantity || 0) : 0;
+
+    const remaining = dbQty - inCart;
+    if (remaining <= 0) {
+      req.flash('error', `No more stock available for ${product.productName}.`);
+      return res.redirect('/shopping');
+    }
+
+    const qtyToAdd = Math.min(requestedQty, remaining);
+
+    req.session.cart = CartItem.addItem(cart, product, qtyToAdd);
 
     req.flash('success', `${product.productName} added to cart.`);
     res.redirect('/cart');
   });
 };
 
-// VIEW CART
+/* =========================================================
+   VIEW CART
+   ========================================================= */
 const viewCart = (req, res) => {
   const cart = req.session.cart || [];
   const grandTotal = CartItem.calculateGrandTotal(cart);
-
   res.render('cart', { cart, grandTotal });
 };
 
-// UPDATE QUANTITY
+/* =========================================================
+   UPDATE QUANTITY — respects DB stock
+   ========================================================= */
 const updateQuantity = (req, res) => {
   const cart = req.session.cart || [];
   const productId = parseInt(req.params.productId);
-  const newQty = parseInt(req.body.quantity);
+  let newQty = parseInt(req.body.quantity);
 
   const item = cart.find((i) => i.productId === productId);
-  if (item) item.quantity = newQty;
+  if (!item) {
+    req.flash('error', 'Item not found in cart.');
+    return res.redirect('/cart');
+  }
 
-  req.flash('success', 'Item quantity updated.');
-  res.redirect('/cart');
+  Product.getById(productId, (err, results) => {
+    if (err || !results || results.length === 0) {
+      console.error('Update quantity error:', err);
+      req.flash('error', 'Unable to update quantity.');
+      return res.redirect('/cart');
+    }
+
+    const product = results[0];
+    const dbQty = Number(product.quantity || 0);
+
+    if (isNaN(newQty) || newQty < 1) newQty = 1;
+
+    if (newQty > dbQty) {
+      newQty = dbQty;
+      req.flash('error', `Only ${dbQty} units of ${product.productName} are available.`);
+    }
+
+    item.quantity = newQty;
+
+    req.flash('success', 'Item quantity updated.');
+    res.redirect('/cart');
+  });
 };
 
-// REMOVE ITEM
+/* =========================================================
+   REMOVE & CLEAR CART
+   ========================================================= */
 const removeItem = (req, res) => {
   const productId = parseInt(req.params.productId);
   req.session.cart = (req.session.cart || []).filter((i) => i.productId !== productId);
@@ -69,21 +108,22 @@ const removeItem = (req, res) => {
   res.redirect('/cart');
 };
 
-// CLEAR CART
 const clearCart = (req, res) => {
   req.session.cart = [];
   req.flash('info', 'Cart cleared.');
   res.redirect('/cart');
 };
 
-// GET /checkout
+/* =========================================================
+   CHECKOUT PAGE
+   ========================================================= */
 const checkoutPage = (req, res) => {
   const cart = req.session.cart || [];
-  const subtotal = (cart || []).reduce(
-    (s, it) => s + Number(it.price || 0) * Number(it.quantity || 0),
+  const subtotal = cart.reduce(
+    (sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0),
     0
   );
-  const tax = +(subtotal * TAX_RATE);
+  const tax = subtotal * TAX_RATE;
   const shipping = cart.length ? SHIPPING_FLAT : 0;
   const total = subtotal + tax + shipping;
 
@@ -100,10 +140,13 @@ const checkoutPage = (req, res) => {
   });
 };
 
-// POST /checkout (place order)
+/* =========================================================
+   PLACE ORDER — decrements DB stock
+   ========================================================= */
 const placeOrder = async (req, res) => {
   const cart = req.session.cart || [];
   const user = req.session.user;
+
   if (!user) {
     req.flash('error', 'Please log in to place an order.');
     return res.redirect('/login');
@@ -120,7 +163,7 @@ const placeOrder = async (req, res) => {
     const createItem = util.promisify(OrderItem.create);
     const decrement = util.promisify(Product.decrementQuantity);
 
-    // stock check
+    // Check stock fresh
     for (const it of cart) {
       const rows = await getById(it.productId);
       const prod = rows && rows[0];
@@ -131,7 +174,7 @@ const placeOrder = async (req, res) => {
     }
 
     const subtotal = cart.reduce(
-      (s, it) => s + Number(it.price) * Number(it.quantity),
+      (sum, it) => sum + Number(it.price) * Number(it.quantity),
       0
     );
     const tax = subtotal * TAX_RATE;
@@ -156,7 +199,9 @@ const placeOrder = async (req, res) => {
   }
 };
 
-// ORDER HISTORY (User)
+/* =========================================================
+   ORDER HISTORY + DETAILS (USER)
+   ========================================================= */
 const orderHistory = (req, res) => {
   Order.getAllByUser(req.session.user.id, (err, orders) => {
     if (err) {
@@ -164,17 +209,10 @@ const orderHistory = (req, res) => {
       req.flash('error', 'Error loading order history.');
       return res.redirect('/shopping');
     }
-
-    orders = (orders || []).map((o) => ({
-      ...o,
-      totalAmount: Number(o.totalAmount || 0)
-    }));
-
     res.render('orders', { orders });
   });
 };
 
-// ORDER DETAILS (User)
 const orderDetails = (req, res) => {
   OrderItem.getItemsByOrder(req.params.id, (err, items) => {
     if (err) {
@@ -183,8 +221,10 @@ const orderDetails = (req, res) => {
       return res.redirect('/orders');
     }
 
-    let total = 0;
-    items.forEach((i) => (total += i.price * i.quantity));
+    const total = items.reduce(
+      (sum, i) => sum + Number(i.price) * Number(i.quantity),
+      0
+    );
 
     res.render('orderDetails', {
       items,
@@ -194,7 +234,9 @@ const orderDetails = (req, res) => {
   });
 };
 
-// ADMIN — view ALL orders
+/* =========================================================
+   ADMIN — VIEW ALL ORDERS
+   ========================================================= */
 const adminOrders = (req, res) => {
   Order.getAll((err, orders) => {
     if (err) {
@@ -202,14 +244,10 @@ const adminOrders = (req, res) => {
       req.flash('error', 'Error loading orders.');
       return res.redirect('/inventory');
     }
-
-    res.render('adminOrders', {
-      orders
-    });
+    res.render('adminOrders', { orders });
   });
 };
 
-// ADMIN — view order details
 const adminOrderDetails = (req, res) => {
   OrderItem.getItemsByOrder(req.params.id, (err, items) => {
     if (err) {
@@ -218,13 +256,10 @@ const adminOrderDetails = (req, res) => {
       return res.redirect('/admin/orders');
     }
 
-    items = (items || []).map((i) => ({
-      ...i,
-      price: Number(i.price || 0),
-      quantity: Number(i.quantity || 0)
-    }));
-
-    const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    const total = items.reduce(
+      (sum, i) => sum + Number(i.price) * Number(i.quantity),
+      0
+    );
 
     res.render('adminOrderDetails', {
       items,
@@ -234,6 +269,9 @@ const adminOrderDetails = (req, res) => {
   });
 };
 
+/* =========================================================
+   EXPORT
+   ========================================================= */
 module.exports = {
   addToCart,
   viewCart,

@@ -58,6 +58,13 @@ app.use(flash());
 // GLOBAL TEMPLATE VARIABLES
 app.use((req, res, next) => {
   res.locals.user = req.session.user || null;
+
+  const cart = req.session.cart || [];
+  res.locals.cartCount = cart.reduce(
+    (sum, item) => sum + Number(item.quantity || 0),
+    0
+  );
+
   res.locals.successMessages = req.flash('success');
   res.locals.errorMessages = req.flash('error');
   res.locals.infoMessages = req.flash('info');
@@ -76,6 +83,13 @@ const checkAuthenticated = (req, res, next) => {
 const checkAdmin = (req, res, next) => {
   if (req.session.user && req.session.user.role === 'admin') return next();
   req.flash('error', 'Access denied. Admin only.');
+  res.redirect('/');
+};
+
+const checkCustomer = (req, res, next) => {
+  // anything that is NOT admin is treated as customer
+  if (req.session.user && req.session.user.role !== 'admin') return next();
+  req.flash('error', 'Customers only.');
   res.redirect('/');
 };
 
@@ -107,21 +121,56 @@ const validateRegistration = (req, res, next) => {
 // HOME
 app.get('/', UserController.home);
 
+// =========================
 // PRODUCT PAGES
+// =========================
+
+// ADMIN inventory + product mgmt
 app.get('/inventory', checkAuthenticated, checkAdmin, ProductController.inventory);
-app.get('/shopping', checkAuthenticated, ProductController.shopping);
-app.get('/product/:id', checkAuthenticated, ProductController.getProduct);
-
 app.get('/addProduct', checkAuthenticated, checkAdmin, ProductController.addForm);
-app.post('/addProduct', checkAuthenticated, checkAdmin, upload.single('image'), ProductController.addProduct);
+app.post(
+  '/addProduct',
+  checkAuthenticated,
+  checkAdmin,
+  upload.single('image'),
+  ProductController.addProduct
+);
 
-app.get('/updateProduct/:id', checkAuthenticated, checkAdmin, ProductController.updateForm);
-app.post('/updateProduct/:id', checkAuthenticated, checkAdmin, upload.single('image'), ProductController.updateProduct);
+app.get(
+  '/updateProduct/:id',
+  checkAuthenticated,
+  checkAdmin,
+  ProductController.updateForm
+);
+app.post(
+  '/updateProduct/:id',
+  checkAuthenticated,
+  checkAdmin,
+  upload.single('image'),
+  ProductController.updateProduct
+);
 
-// ❌ REMOVED (CAUSED ERROR)
-// app.get('/deleteProduct/:id', checkAuthenticated, checkAdmin, ProductController.deleteProduct);
+// Enable / Disable product
+app.get(
+  '/product/:id/disable',
+  checkAuthenticated,
+  checkAdmin,
+  ProductController.disableProduct
+);
+app.get(
+  '/product/:id/enable',
+  checkAuthenticated,
+  checkAdmin,
+  ProductController.enableProduct
+);
 
+// CUSTOMER shop pages
+app.get('/shopping', checkAuthenticated, checkCustomer, ProductController.shopping);
+app.get('/product/:id', checkAuthenticated, checkCustomer, ProductController.getProduct);
+
+// =========================
 // USER AUTH
+// =========================
 app.get('/register', UserController.showRegister);
 app.post('/register', validateRegistration, UserController.register);
 
@@ -130,30 +179,53 @@ app.post('/login', UserController.login);
 
 app.get('/logout', UserController.logout);
 
-// CART
-app.post('/add-to-cart/:id', checkAuthenticated, CartController.addToCart);
-app.get('/cart', checkAuthenticated, CartController.viewCart);
+// =========================
+// CART (CUSTOMER ONLY)
+// =========================
+app.post(
+  '/add-to-cart/:id',
+  checkAuthenticated,
+  checkCustomer,
+  CartController.addToCart
+);
+app.get('/cart', checkAuthenticated, checkCustomer, CartController.viewCart);
 
-app.post('/cart/update/:productId', checkAuthenticated, CartController.updateQuantity);
-app.get('/cart/remove/:productId', checkAuthenticated, CartController.removeItem);
-app.get('/cart/clear', checkAuthenticated, CartController.clearCart);
+app.post(
+  '/cart/update/:productId',
+  checkAuthenticated,
+  checkCustomer,
+  CartController.updateQuantity
+);
+app.get(
+  '/cart/remove/:productId',
+  checkAuthenticated,
+  checkCustomer,
+  CartController.removeItem
+);
+app.get('/cart/clear', checkAuthenticated, checkCustomer, CartController.clearCart);
 
+// =========================
 // CHECKOUT + ORDERS
-app.get('/checkout', checkAuthenticated, CartController.checkoutPage);
-app.post('/checkout', checkAuthenticated, CartController.placeOrder);
+// =========================
+app.get('/checkout', checkAuthenticated, checkCustomer, CartController.checkoutPage);
+app.post('/checkout', checkAuthenticated, checkCustomer, CartController.placeOrder);
 
-app.get('/orders', checkAuthenticated, CartController.orderHistory);
-app.get('/orders/:id', checkAuthenticated, CartController.orderDetails);
+app.get('/orders', checkAuthenticated, checkCustomer, CartController.orderHistory);
+app.get('/orders/:id', checkAuthenticated, checkCustomer, CartController.orderDetails);
 
+// =========================
 // ADMIN ORDER MGMT
+// =========================
 app.get('/admin/orders', checkAuthenticated, checkAdmin, CartController.adminOrders);
-app.get('/admin/orders/:id', checkAuthenticated, checkAdmin, CartController.adminOrderDetails);
+app.get(
+  '/admin/orders/:id',
+  checkAuthenticated,
+  checkAdmin,
+  CartController.adminOrderDetails
+);
 
-// ADMIN ROUTES
-app.use('/admin', require('./routes/admin'));
-
-// ENABLE / DISABLE PRODUCT ROUTES
-app.use('/', require('./routes/product'));   
+// NOTE: we DON'T need routes/admin.js, routes/cart.js, routes/product.js anymore.
+// If they exist, they are unused. You can delete them later if you want.
 
 // =========================
 // SERVER
