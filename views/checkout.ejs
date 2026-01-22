@@ -11,7 +11,7 @@
     .billing-card small { color: #666; }
   </style>
 </head>
-<body>
+<body data-cart-has-items="<%= cart && cart.length ? '1' : '0' %>">
   <%- include('partials/navbar') %>
 
   <div class="container my-5">
@@ -28,10 +28,10 @@
             <div class="card billing-card p-3 card-preserve">
               <h6 class="mb-2">Bill to</h6>
               <div>
-                <strong><%= user && user.name ? user.name : 'Guest' %></strong><br>
+                <strong><%= user && user.username ? user.username : 'Guest' %></strong><br>
                 <small><%= user && user.email ? user.email : '' %></small><br>
                 <small><%= user && user.address ? user.address : '' %></small><br>
-                <small>Contact <%= user && user.contact ? user.contact : '' %></small>
+                <small>Contact <%= user && user.contact_number ? user.contact_number : '' %></small>
               </div>
             </div>
           </div>
@@ -45,7 +45,7 @@
                 </div>
                 <div class="text-end">
                   <small class="text-muted">Payment method</small><br>
-                  <strong><%= paymentMethodDisplay %></strong>
+                  <strong id="pm-display"><%= paymentMethodDisplay %></strong>
                 </div>
               </div>
             </div>
@@ -66,20 +66,26 @@
                 </tr>
               </thead>
               <tbody>
-                <% cart.forEach((item, idx) => { %>
+                <% if (!cart || cart.length === 0) { %>
                   <tr>
-                    <td><%= idx + 1 %></td>
-                    <td class="d-flex align-items-center gap-3">
-                      <% if (item.image) { %>
-                        <img src="/images/<%= item.image %>" alt="" style="height:40px;width:auto;">
-                      <% } %>
-                      <div><strong><%= item.productName %></strong></div>
-                    </td>
-                    <td class="text-end">$<%= Number(item.price || 0).toFixed(2) %></td>
-                    <td class="text-center"><%= Number(item.quantity || 0) %></td>
-                    <td class="text-end">$<%= (Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2) %></td>
+                    <td colspan="5" class="text-center py-4 text-muted">Your cart is empty.</td>
                   </tr>
-                <% }) %>
+                <% } else { %>
+                  <% cart.forEach((item, idx) => { %>
+                    <tr>
+                      <td><%= idx + 1 %></td>
+                      <td class="d-flex align-items-center gap-3">
+                        <% if (item.image) { %>
+                          <img src="/images/<%= item.image %>" alt="" style="height:40px;width:auto;">
+                        <% } %>
+                        <div><strong><%= item.productName %></strong></div>
+                      </td>
+                      <td class="text-end">$<%= Number(item.price || 0).toFixed(2) %></td>
+                      <td class="text-center"><%= Number(item.quantity || 0) %></td>
+                      <td class="text-end">$<%= (Number(item.price || 0) * Number(item.quantity || 0)).toFixed(2) %></td>
+                    </tr>
+                  <% }) %>
+                <% } %>
               </tbody>
             </table>
           </div>
@@ -88,20 +94,29 @@
         <!-- Payment options -->
         <div class="card p-3">
           <h6>Payment</h6>
-          <form id="payment-form">
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="pmethod" id="pm-card" value="card" <%= paymentMethod === 'card' ? 'checked' : '' %>>
-              <label class="form-check-label" for="pm-card">Credit/Debit card</label>
+
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="pmethod" id="pm-paypal" value="paypal" checked>
+            <label class="form-check-label" for="pm-paypal">PayPal</label>
+          </div>
+
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="radio" name="pmethod" id="pm-nets" value="nets">
+            <label class="form-check-label" for="pm-nets">NETS QR (Coming next)</label>
+          </div>
+
+          <!-- PayPal -->
+          <div id="paypal-area">
+            <div id="paypal-button-container"></div>
+            <div id="paypal-error" class="text-danger small mt-2"></div>
+          </div>
+
+          <!-- NETS placeholder -->
+          <div id="nets-area" style="display:none;">
+            <div class="alert alert-info mb-0">
+              NETS QR integration will be added after PayPal.
             </div>
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="pmethod" id="pm-contactless" value="contactless" <%= paymentMethod === 'contactless' ? 'checked' : '' %>>
-              <label class="form-check-label" for="pm-contactless">Contactless payment (Apple Pay)</label>
-            </div>
-            <div class="form-check">
-              <input class="form-check-input" type="radio" name="pmethod" id="pm-paynow" value="paynow" <%= paymentMethod === 'paynow' ? 'checked' : '' %>>
-              <label class="form-check-label" for="pm-paynow">PayNow <small class="d-block text-muted">UEN: 20241234A</small></label>
-            </div>
-          </form>
+          </div>
         </div>
 
       </div>
@@ -115,27 +130,22 @@
             <tbody>
               <tr>
                 <td>Subtotal</td>
-                <td class="text-end">$<%= subtotal.toFixed(2) %></td>
+                <td class="text-end">$<%= Number(subtotal || 0).toFixed(2) %></td>
               </tr>
               <tr>
                 <td>Tax</td>
-                <td class="text-end">$<%= tax.toFixed(2) %></td>
+                <td class="text-end">$<%= Number(tax || 0).toFixed(2) %></td>
               </tr>
               <tr>
                 <td>Shipping</td>
-                <td class="text-end">$<%= shipping.toFixed(2) %></td>
+                <td class="text-end">$<%= Number(shipping || 0).toFixed(2) %></td>
               </tr>
               <tr class="border-top">
                 <th>Total</th>
-                <th class="text-end">$<%= total.toFixed(2) %></th>
+                <th class="text-end">$<%= Number(total || 0).toFixed(2) %></th>
               </tr>
             </tbody>
           </table>
-
-          <form action="/checkout" method="POST">
-            <input type="hidden" name="paymentMethod" id="form-payment-method" value="<%= paymentMethod %>">
-            <button type="submit" class="btn btn-success pay-btn mb-2">Confirm &amp; Pay</button>
-          </form>
 
           <a href="/cart" class="btn btn-outline-secondary pay-btn">Edit Cart</a>
         </div>
@@ -146,14 +156,79 @@
 
   <%- include('partials/footer') %>
 
+  <!-- PayPal SDK -->
+  <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>&currency=<%= currency %>"></script>
+
   <script>
-    // sync radio selection into hidden form field
+    const paypalArea = document.getElementById('paypal-area');
+    const netsArea = document.getElementById('nets-area');
+    const pmDisplay = document.getElementById('pm-display');
+    const errBox = document.getElementById('paypal-error');
+
+    // Toggle payment UI
     document.querySelectorAll('input[name="pmethod"]').forEach(r => {
       r.addEventListener('change', () => {
-        const hidden = document.getElementById('form-payment-method');
-        if (hidden) hidden.value = r.value;
+        const v = r.value;
+
+        paypalArea.style.display = (v === 'paypal') ? 'block' : 'none';
+        netsArea.style.display = (v === 'nets') ? 'block' : 'none';
+
+        if (pmDisplay) {
+          pmDisplay.textContent = (v === 'paypal') ? 'PayPal' : 'NETS QR';
+        }
+
+        if (errBox) errBox.textContent = '';
       });
     });
+
+    // Guard: if cart empty, disable PayPal button rendering (optional, but nicer)
+    const cartHasItems = document.body.dataset.cartHasItems === '1';
+    if (!cartHasItems) {
+      if (errBox) errBox.textContent = 'Cart is empty. Add items before paying.';
+    } else {
+      paypal.Buttons({
+        createOrder: async function() {
+          try {
+            if (errBox) errBox.textContent = '';
+
+            const res = await fetch('/paypal/create-order', { method: 'POST' });
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error || 'Create order failed');
+            return data.id; // PayPal order id
+          } catch (e) {
+            if (errBox) errBox.textContent = e.message;
+            throw e;
+          }
+        },
+
+        onApprove: async function(data) {
+          try {
+            if (errBox) errBox.textContent = '';
+
+            const res = await fetch('/paypal/capture-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orderID: data.orderID })
+            });
+
+            const result = await res.json();
+
+            if (!res.ok) throw new Error(result.error || 'Payment capture failed');
+
+            // go to order details page
+            window.location.href = '/orders/' + result.localOrderId;
+          } catch (e) {
+            if (errBox) errBox.textContent = e.message;
+          }
+        },
+
+        onError: function(err) {
+          console.error(err);
+          if (errBox) errBox.textContent = 'PayPal error. Please try again.';
+        }
+      }).render('#paypal-button-container');
+    }
   </script>
 
 </body>

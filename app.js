@@ -212,6 +212,118 @@ app.post('/checkout', checkAuthenticated, checkCustomer, CartController.placeOrd
 app.get('/orders', checkAuthenticated, checkCustomer, CartController.orderHistory);
 app.get('/orders/:id', checkAuthenticated, checkCustomer, CartController.orderDetails);
 
+const paypal = require('./services/paypal');
+const Payment = require('./models/Payment');
+const Order = require('./models/Order');
+const OrderItem = require('./models/OrderItem');
+const util = require('util');
+const ProductModel = require('./models/Product');
+
+app.post('/paypal/create-order', checkAuthenticated, checkCustomer, async (req, res) => {
+  try {
+    const cart = req.session.cart || [];
+    const user = req.session.user;
+
+    if (!cart.length) return res.status(400).json({ error: 'Cart is empty.' });
+
+    // totals (same logic as CartController)
+    const TAX_RATE = 0.07;
+    const SHIPPING_FLAT = 5.0;
+
+    const subtotal = cart.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
+    const tax = subtotal * TAX_RATE;
+    const shipping = cart.length ? SHIPPING_FLAT : 0;
+    const total = subtotal + tax + shipping;
+
+    // create local order PENDING
+    const createOrder = util.promisify(Order.create);
+    const orderResult = await createOrder(user.id, total, 'paypal', 'PENDING');
+    const localOrderId = orderResult.insertId;
+
+    // create local payment record CREATED
+    const createPayment = util.promisify(Payment.create);
+    await createPayment(localOrderId, user.id, 'paypal', total, 'SGD', 'CREATED', user.email, null);
+
+    // create PayPal order
+    const ppOrder = await paypal.createPaypalOrder(total, 'SGD');
+
+    // store mapping in session so capture knows which local order to finalize
+    req.session.pendingOrderId = localOrderId;
+
+    // also update provider_ref now
+    const updatePayment = util.promisify(Payment.updateByOrder);
+    await updatePayment(localOrderId, { providerRef: ppOrder.id });
+
+    return res.json({ id: ppOrder.id });
+  } catch (err) {
+    console.error('PayPal create-order error:', err);
+    return res.status(500).json({ error: 'Unable to create PayPal order.' });
+  }
+});
+
+app.post('/paypal/capture-order', checkAuthenticated, checkCustomer, async (req, res) => {
+  try {
+    const { orderID } = req.body;
+    const cart = req.session.cart || [];
+    const user = req.session.user;
+
+    const localOrderId = req.session.pendingOrderId;
+    if (!localOrderId) return res.status(400).json({ error: 'No pending local order.' });
+    if (!cart.length) return res.status(400).json({ error: 'Cart is empty.' });
+
+    // capture on PayPal
+    const capture = await paypal.capturePaypalOrder(orderID);
+
+    // basic success check
+    if (!capture || capture.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'Payment not completed.' });
+    }
+
+    // finalize local order: order_items + decrement stock
+    const getById = util.promisify(ProductModel.getById);
+    const createItem = util.promisify(OrderItem.create);
+    const decrement = util.promisify(ProductModel.decrementQuantity);
+    const updateOrderStatus = util.promisify(Order.updateStatus);
+    const updatePayment = util.promisify(Payment.updateByOrder);
+
+    // stock re-check (important)
+    for (const it of cart) {
+      const rows = await getById(it.productId);
+      const prod = rows && rows[0];
+      if (!prod || Number(prod.quantity) < Number(it.quantity)) {
+        await updatePayment(localOrderId, { status: 'FAILED' });
+        return res.status(400).json({ error: `Insufficient stock for ${it.productName}.` });
+      }
+    }
+
+    for (const it of cart) {
+      await createItem(localOrderId, it.productId, it.quantity, it.price);
+      await decrement(it.productId, it.quantity);
+    }
+
+    // mark PAID + payment COMPLETED
+    await updateOrderStatus(localOrderId, 'PAID');
+
+    // payer email from capture (best-effort)
+    const payerEmail = capture.payer && capture.payer.email_address ? capture.payer.email_address : null;
+
+    await updatePayment(localOrderId, {
+      status: 'COMPLETED',
+      providerRef: orderID,
+      payerEmail
+    });
+
+    // clear cart + pending
+    req.session.cart = [];
+    req.session.pendingOrderId = null;
+
+    return res.json({ ok: true, localOrderId });
+  } catch (err) {
+    console.error('PayPal capture-order error:', err);
+    return res.status(500).json({ error: 'Unable to capture PayPal payment.' });
+  }
+});
+
 // =========================
 // ADMIN ORDER MGMT
 // =========================

@@ -43,7 +43,6 @@ const addToCart = (req, res) => {
     }
 
     const qtyToAdd = Math.min(requestedQty, remaining);
-
     req.session.cart = CartItem.addItem(cart, product, qtyToAdd);
 
     req.flash('success', `${product.productName} added to cart.`);
@@ -115,7 +114,7 @@ const clearCart = (req, res) => {
 };
 
 /* =========================================================
-   CHECKOUT PAGE
+   CHECKOUT PAGE (PayPal-ready)
    ========================================================= */
 const checkoutPage = (req, res) => {
   const cart = req.session.cart || [];
@@ -135,12 +134,19 @@ const checkoutPage = (req, res) => {
     total,
     grandTotal: total,
     orderDateString: new Date().toString(),
-    paymentMethod: 'paynow',
-    paymentMethodDisplay: 'Credit/Debit card'
+
+    // show this on UI
+    paymentMethod: 'paypal',
+    paymentMethodDisplay: 'PayPal',
+
+    // PayPal SDK needs client id
+    paypalClientId: process.env.PAYPAL_CLIENT_ID,
+    currency: 'SGD'
   });
 };
 
 /* =========================================================
+   (Keep this for later if you do NETS / manual checkout)
    PLACE ORDER — decrements DB stock
    ========================================================= */
 const placeOrder = async (req, res) => {
@@ -163,7 +169,6 @@ const placeOrder = async (req, res) => {
     const createItem = util.promisify(OrderItem.create);
     const decrement = util.promisify(Product.decrementQuantity);
 
-    // Check stock fresh
     for (const it of cart) {
       const rows = await getById(it.productId);
       const prod = rows && rows[0];
@@ -173,10 +178,7 @@ const placeOrder = async (req, res) => {
       }
     }
 
-    const subtotal = cart.reduce(
-      (sum, it) => sum + Number(it.price) * Number(it.quantity),
-      0
-    );
+    const subtotal = cart.reduce((sum, it) => sum + Number(it.price) * Number(it.quantity), 0);
     const tax = subtotal * TAX_RATE;
     const shipping = cart.length ? SHIPPING_FLAT : 0;
     const total = subtotal + tax + shipping;
@@ -221,10 +223,7 @@ const orderDetails = (req, res) => {
       return res.redirect('/orders');
     }
 
-    const total = items.reduce(
-      (sum, i) => sum + Number(i.price) * Number(i.quantity),
-      0
-    );
+    const total = items.reduce((sum, i) => sum + Number(i.price) * Number(i.quantity), 0);
 
     res.render('orderDetails', {
       items,
@@ -256,10 +255,7 @@ const adminOrderDetails = (req, res) => {
       return res.redirect('/admin/orders');
     }
 
-    const total = items.reduce(
-      (sum, i) => sum + Number(i.price) * Number(i.quantity),
-      0
-    );
+    const total = items.reduce((sum, i) => sum + Number(i.price) * Number(i.quantity), 0);
 
     res.render('adminOrderDetails', {
       items,
@@ -269,9 +265,6 @@ const adminOrderDetails = (req, res) => {
   });
 };
 
-/* =========================================================
-   EXPORT
-   ========================================================= */
 module.exports = {
   addToCart,
   viewCart,
