@@ -87,19 +87,18 @@ const checkAdmin = (req, res, next) => {
 };
 
 const checkCustomer = (req, res, next) => {
-  // anything that is NOT admin is treated as customer
   if (req.session.user && req.session.user.role !== 'admin') return next();
   req.flash('error', 'Customers only.');
   res.redirect('/');
 };
 
 // =========================
-// REGISTRATION VALIDATION
+// REGISTRATION VALIDATION  ✅ FIXED
 // =========================
 const validateRegistration = (req, res, next) => {
-  const { username, email, password, address, contact, role } = req.body;
+  const { username, email, password, address, contact_number } = req.body;
 
-  if (!username || !email || !password || !address || !contact || !role) {
+  if (!username || !email || !password || !address || !contact_number) {
     req.flash('error', 'All fields are required.');
     req.flash('formData', req.body);
     return res.redirect('/register');
@@ -223,9 +222,6 @@ app.get(
   checkAdmin,
   CartController.adminOrderDetails
 );
-
-// NOTE: we DON'T need routes/admin.js, routes/cart.js, routes/product.js anymore.
-// If they exist, they are unused. You can delete them later if you want.
 
 // =========================
 // SERVER

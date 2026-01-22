@@ -4,7 +4,7 @@ const db = require('../db');
 
 // Home page
 const home = (req, res) => {
-  res.render('index'); // user & messages from res.locals
+  res.render('index');
 };
 
 // Show register form
@@ -16,25 +16,36 @@ const showRegister = (req, res) => {
 
 // REGISTER (POST)
 const register = (req, res) => {
-  const { username, email, password, address, contact } = req.body;
-  const role = 'user'; // force normal user
+  const { username, email, password, address, contact_number } = req.body;
+  const role = 'user';
+
+  // ✅ STRICT validation (matches error you see)
+  if (!username || !email || !password || !address || !contact_number) {
+    req.flash('error', 'All fields are required.');
+    req.flash('formData', req.body);
+    return res.redirect('/register');
+  }
 
   const sql = `
-    INSERT INTO users (username, email, password, address, contact, role)
+    INSERT INTO users (username, email, password, address, contact_number, role)
     VALUES (?, ?, SHA1(?), ?, ?, ?)
   `;
 
-  db.query(sql, [username, email, password, address, contact, role], (err) => {
-    if (err) {
-      console.log(err);
-      req.flash('error', 'Registration failed. Please try again.');
-      req.flash('formData', req.body);
-      return res.redirect('/register');
-    }
+  db.query(
+    sql,
+    [username, email, password, address, contact_number, role],
+    (err) => {
+      if (err) {
+        console.log('REGISTER ERROR:', err);
+        req.flash('error', 'Registration failed. Email may already exist.');
+        req.flash('formData', req.body);
+        return res.redirect('/register');
+      }
 
-    req.flash('success', 'Registration successful! Please log in.');
-    res.redirect('/login');
-  });
+      req.flash('success', 'Registration successful! Please log in.');
+      res.redirect('/login');
+    }
+  );
 };
 
 // Show login form
@@ -44,7 +55,7 @@ const showLogin = (req, res) => {
   });
 };
 
-// Handle login POST
+// LOGIN (POST)
 const login = (req, res) => {
   const { email, password } = req.body;
 
@@ -55,7 +66,7 @@ const login = (req, res) => {
 
   User.authenticate(email, password, (err, user) => {
     if (err) {
-      console.error('Error authenticating user:', err);
+      console.error('LOGIN ERROR:', err);
       req.flash('error', 'Login error. Please try again.');
       return res.redirect('/login');
     }
@@ -69,17 +80,16 @@ const login = (req, res) => {
     req.session.user = user;
     req.flash('success', `Welcome back, ${user.username}!`);
 
-    if (user.role === 'user') {
-      res.redirect('/shopping');
-    } else {
+    if (user.role === 'admin') {
       res.redirect('/inventory');
+    } else {
+      res.redirect('/shopping');
     }
   });
 };
 
 // Logout
 const logout = (req, res) => {
-  // keep session for flash, just clear user
   req.session.user = null;
   req.flash('info', 'You have been logged out.');
   res.redirect('/');
