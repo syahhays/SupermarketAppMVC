@@ -38,8 +38,28 @@
       </tbody>
     </table>
 
-    <!-- FIX: Ensure total is number -->
-    <h3 class="text-end mt-3">Grand Total: $<%= Number(total).toFixed(2) %></h3>
+    <div class="d-flex justify-content-end">
+      <table class="table table-borderless w-auto">
+        <tbody>
+          <tr>
+            <td class="text-end">Subtotal</td>
+            <td class="text-end">$<%= Number(subtotal || 0).toFixed(2) %></td>
+          </tr>
+          <tr>
+            <td class="text-end">Tax</td>
+            <td class="text-end">$<%= Number(tax || 0).toFixed(2) %></td>
+          </tr>
+          <tr>
+            <td class="text-end">Shipping</td>
+            <td class="text-end">$<%= Number(shipping || 0).toFixed(2) %></td>
+          </tr>
+          <tr class="border-top">
+            <th class="text-end">Grand Total</th>
+            <th class="text-end">$<%= Number(total || 0).toFixed(2) %></th>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <a href="/orders" class="btn btn-secondary mt-3">Back to Order History</a>
   </div>

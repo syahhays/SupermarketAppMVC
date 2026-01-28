@@ -43,6 +43,7 @@ const upload = multer({ storage });
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 
 app.use(
   session({
@@ -213,6 +214,7 @@ app.get('/orders', checkAuthenticated, checkCustomer, CartController.orderHistor
 app.get('/orders/:id', checkAuthenticated, checkCustomer, CartController.orderDetails);
 
 const paypal = require('./services/paypal');
+const nets = require('./services/nets');
 const Payment = require('./models/Payment');
 const Order = require('./models/Order');
 const OrderItem = require('./models/OrderItem');
@@ -322,6 +324,21 @@ app.post('/paypal/capture-order', checkAuthenticated, checkCustomer, async (req,
     console.error('PayPal capture-order error:', err);
     return res.status(500).json({ error: 'Unable to capture PayPal payment.' });
   }
+});
+
+// =========================
+// NETS QR
+// =========================
+app.post('/nets-qr/request', checkAuthenticated, checkCustomer, nets.generateQrCode);
+app.get('/nets-qr/status', checkAuthenticated, checkCustomer, nets.checkQrStatus);
+
+app.get('/nets-qr/fail', checkAuthenticated, checkCustomer, (req, res) => {
+  res.render('netsQrFail', {
+    title: 'Error',
+    responseCode: 'N.A.',
+    instructions: '',
+    errorMsg: 'Unable to generate NETS QR. Please try again.'
+  });
 });
 
 // =========================

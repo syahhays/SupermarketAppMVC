@@ -223,11 +223,20 @@ const orderDetails = (req, res) => {
       return res.redirect('/orders');
     }
 
-    const total = items.reduce((sum, i) => sum + Number(i.price) * Number(i.quantity), 0);
+    const subtotal = items.reduce(
+      (sum, i) => sum + Number(i.price) * Number(i.quantity),
+      0
+    );
+    const tax = subtotal * TAX_RATE;
+    const shipping = items.length ? SHIPPING_FLAT : 0;
+    const total = subtotal + tax + shipping;
 
     res.render('orderDetails', {
       items,
       orderId: req.params.id,
+      subtotal,
+      tax,
+      shipping,
       total
     });
   });
