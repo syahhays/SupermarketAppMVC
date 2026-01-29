@@ -149,12 +149,16 @@
 
           <!-- Stripe -->
           <div id="stripe-area" class="mt-3" style="display:none;">
-            <button id="stripe-btn" type="button" class="btn btn-primary w-100">
-              Pay with Stripe
-            </button>
-            <div id="stripe-loading" class="text-muted small mt-2" style="display:none;">
-              Redirecting to Stripe Checkout...
-            </div>
+            <form id="stripe-payment-form" class="d-grid gap-2">
+              <div id="payment-element"></div>
+              <div id="paynow-qr" class="border rounded p-3 text-center" style="display:none;">
+                <div class="fw-semibold mb-2">PayNow QR</div>
+                <img id="paynow-qr-img" alt="PayNow QR" style="max-width:240px;width:100%;height:auto;" />
+                <div class="text-muted small mt-2">Scan using your banking app to complete payment.</div>
+              </div>
+              <button id="stripe-submit" type="submit" class="btn btn-primary w-100">Pay with Stripe</button>
+              <div id="stripe-message" class="text-danger small"></div>
+            </form>
           </div>
         </div>
 
@@ -197,6 +201,8 @@
 
   <!-- PayPal SDK -->
   <script src="https://www.paypal.com/sdk/js?client-id=<%= paypalClientId %>&currency=<%= currency %>"></script>
+  <!-- Stripe.js -->
+  <script src="https://js.stripe.com/v3/"></script>
 
   <script>
     const paypalArea = document.getElementById('paypal-area');
@@ -206,8 +212,11 @@
     const errBox = document.getElementById('paypal-error');
     const netsForm = document.getElementById('nets-form');
     const netsBtn = document.getElementById('nets-btn');
-    const stripeBtn = document.getElementById('stripe-btn');
-    const stripeLoading = document.getElementById('stripe-loading');
+    const stripeForm = document.getElementById('stripe-payment-form');
+    const stripeSubmit = document.getElementById('stripe-submit');
+    const stripeMessage = document.getElementById('stripe-message');
+    const paynowQr = document.getElementById('paynow-qr');
+    const paynowQrImg = document.getElementById('paynow-qr-img');
     const expressButtons = document.querySelectorAll('.express-btn');
     const STORAGE_KEY = 'selectedPaymentMethod';
     let paypalButtonsRendered = false;
@@ -239,6 +248,7 @@
       if (method === 'paypal') {
         if (!paypalButtonsRendered) {
           paypal.Buttons({
+            fundingSource: paypal.FUNDING.PAYPAL,
             disableFunding: ['card', 'credit'],
             createOrder: async function() {
               try {
@@ -292,6 +302,39 @@
       }
     }
 
+    let stripeInstance = null;
+    let stripeElements = null;
+    let stripeOrderId = null;
+    let stripeMounted = false;
+
+    async function initStripeElement() {
+      if (stripeMounted) return;
+      if (!stripeInstance) {
+        stripeInstance = Stripe("<%= stripePublishableKey || '' %>");
+      }
+
+      try {
+        const res = await fetch('/stripe/create-payment-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.clientSecret) {
+          throw new Error(data.error || 'Unable to start Stripe payment.');
+        }
+
+        stripeOrderId = data.orderId;
+        stripeElements = stripeInstance.elements({ clientSecret: data.clientSecret });
+        const paymentElement = stripeElements.create('payment');
+        paymentElement.mount('#payment-element');
+        stripeMounted = true;
+      } catch (e) {
+        if (stripeMessage) stripeMessage.textContent = e.message;
+      }
+    }
+
     expressButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         const method = btn.dataset.method;
@@ -303,31 +346,53 @@
             if (ppBtn) ppBtn.click();
           }, 0);
         }
+        if (method === 'stripe') {
+          initStripeElement();
+        }
       });
     });
 
-    if (stripeBtn) {
-      stripeBtn.addEventListener('click', async () => {
-        try {
-          if (stripeLoading) stripeLoading.style.display = 'block';
-          stripeBtn.disabled = true;
+    if (stripeForm) {
+      stripeForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!stripeInstance || !stripeElements) return;
 
-          const res = await fetch('/stripe/create-checkout-session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
-          });
-          const data = await res.json();
+        if (stripeSubmit) stripeSubmit.disabled = true;
+        if (stripeMessage) stripeMessage.textContent = '';
+        if (paynowQr) paynowQr.style.display = 'none';
 
-          if (!res.ok || !data.url) {
-            throw new Error(data.error || 'Unable to start Stripe checkout.');
+        const { error, paymentIntent } = await stripeInstance.confirmPayment({
+          elements: stripeElements,
+          confirmParams: {
+            return_url: `${window.location.origin}/stripe/return`
+          },
+          redirect: 'if_required'
+        });
+
+        if (error) {
+          if (stripeMessage) stripeMessage.textContent = error.message || 'Stripe payment failed.';
+          if (stripeSubmit) stripeSubmit.disabled = false;
+          return;
+        }
+
+        if (paymentIntent && paymentIntent.status === 'succeeded' && stripeOrderId) {
+          try {
+            await fetch('/stripe/clear-cart', { method: 'POST' });
+          } catch (e) {}
+          window.location.href = `/orders/${stripeOrderId}`;
+          return;
+        }
+
+        if (paymentIntent && paymentIntent.status === 'requires_action') {
+          const next = paymentIntent.next_action;
+          if (next && next.type === 'display_qr_code' && next.display_qr_code) {
+            const qr = next.display_qr_code;
+            const imgUrl = qr.image_url_svg || qr.image_url_png;
+            if (imgUrl && paynowQrImg && paynowQr) {
+              paynowQrImg.src = imgUrl;
+              paynowQr.style.display = 'block';
+            }
           }
-
-          window.location.href = data.url;
-        } catch (e) {
-          if (stripeLoading) stripeLoading.style.display = 'none';
-          stripeBtn.disabled = false;
-          if (errBox) errBox.textContent = e.message;
         }
       });
     }
@@ -337,7 +402,7 @@
     if (!cartHasItems) {
       if (errBox) errBox.textContent = 'Cart is empty. Add items before paying.';
       if (netsBtn) netsBtn.disabled = true;
-      if (stripeBtn) stripeBtn.disabled = true;
+      if (stripeSubmit) stripeSubmit.disabled = true;
     } else {
       let initialMethod = 'paypal';
       try {

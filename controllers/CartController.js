@@ -141,6 +141,7 @@ const checkoutPage = (req, res) => {
 
     // PayPal SDK needs client id
     paypalClientId: process.env.PAYPAL_CLIENT_ID,
+    stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
     currency: 'SGD'
   });
 };
@@ -231,13 +232,32 @@ const orderDetails = (req, res) => {
     const shipping = items.length ? SHIPPING_FLAT : 0;
     const total = subtotal + tax + shipping;
 
-    res.render('orderDetails', {
-      items,
-      orderId: req.params.id,
-      subtotal,
-      tax,
-      shipping,
-      total
+    Order.getById(req.params.id, (orderErr, orderRows) => {
+      if (orderErr) {
+        console.error('Order details order error:', orderErr);
+        req.flash('error', 'Error loading order details.');
+        return res.redirect('/orders');
+      }
+      const order = orderRows && orderRows[0];
+
+      const Payment = require('../models/Payment');
+      Payment.getByOrderId(req.params.id, (payErr, paymentRows) => {
+        if (payErr) {
+          console.error('Order details payment error:', payErr);
+        }
+        const payment = paymentRows && paymentRows[0] ? paymentRows[0] : null;
+
+        res.render('orderDetails', {
+          items,
+          orderId: req.params.id,
+          subtotal,
+          tax,
+          shipping,
+          total,
+          order,
+          payment
+        });
+      });
     });
   });
 };
@@ -264,12 +284,40 @@ const adminOrderDetails = (req, res) => {
       return res.redirect('/admin/orders');
     }
 
-    const total = items.reduce((sum, i) => sum + Number(i.price) * Number(i.quantity), 0);
+    const subtotal = items.reduce(
+      (sum, i) => sum + Number(i.price) * Number(i.quantity),
+      0
+    );
+    const tax = subtotal * TAX_RATE;
+    const shipping = items.length ? SHIPPING_FLAT : 0;
+    const total = subtotal + tax + shipping;
 
-    res.render('adminOrderDetails', {
-      items,
-      orderId: req.params.id,
-      total
+    Order.getById(req.params.id, (orderErr, orderRows) => {
+      if (orderErr) {
+        console.error('Admin order details order error:', orderErr);
+        req.flash('error', 'Error loading order details.');
+        return res.redirect('/admin/orders');
+      }
+      const order = orderRows && orderRows[0];
+
+      const Payment = require('../models/Payment');
+      Payment.getByOrderId(req.params.id, (payErr, paymentRows) => {
+        if (payErr) {
+          console.error('Admin order details payment error:', payErr);
+        }
+        const payment = paymentRows && paymentRows[0] ? paymentRows[0] : null;
+
+        res.render('adminOrderDetails', {
+          items,
+          orderId: req.params.id,
+          total,
+          subtotal,
+          tax,
+          shipping,
+          order,
+          payment
+        });
+      });
     });
   });
 };

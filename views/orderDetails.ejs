@@ -89,7 +89,16 @@
           <div class="fw-semibold text-uppercase small text-muted">Order</div>
           <div class="mt-2">
             <div class="invoice-meta">Order ID: <%= orderId %></div>
-            <div class="invoice-meta">Payment: <%= items && items.length ? 'Paid' : 'Pending' %></div>
+            <div class="invoice-meta">Payment: <%= order && order.status ? order.status : (items && items.length ? 'Paid' : 'Pending') %></div>
+            <% if (payment && payment.provider) { %>
+              <div class="invoice-meta">Method: <%= payment.provider %></div>
+            <% } %>
+            <% if (payment && payment.refunded_at) { %>
+              <div class="invoice-meta">Refunded: <%= payment.refunded_at %></div>
+            <% } %>
+            <% if (payment && payment.refund_ref) { %>
+              <div class="invoice-meta">Refund ref: <%= String(payment.refund_ref).slice(0, 12) %>...</div>
+            <% } %>
           </div>
         </div>
       </div>

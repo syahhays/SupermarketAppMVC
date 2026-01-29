@@ -239,11 +239,11 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
 
   console.log('Stripe webhook received:', event.type);
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    console.log('Stripe session completed:', session.id);
-    const localOrderId = session.metadata && session.metadata.localOrderId
-      ? Number(session.metadata.localOrderId)
+  if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+    console.log('Stripe payment_intent succeeded:', paymentIntent.id);
+    const localOrderId = paymentIntent.metadata && paymentIntent.metadata.localOrderId
+      ? Number(paymentIntent.metadata.localOrderId)
       : null;
 
     if (!localOrderId) {
@@ -255,18 +255,31 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
         ? app.locals.pendingStripeCarts.get(localOrderId)
         : null;
 
-      if (!pendingCart || !pendingCart.cart || !pendingCart.cart.length) {
-        console.error('Stripe webhook missing cart snapshot for order', localOrderId);
-        return res.status(200).json({ received: true });
+      let cart = null;
+      if (pendingCart && pendingCart.cart && pendingCart.cart.length) {
+        cart = pendingCart.cart;
       }
-
-      const cart = pendingCart.cart;
 
       const getById = util.promisify(ProductModel.getById);
       const createItem = util.promisify(OrderItem.create);
       const decrement = util.promisify(ProductModel.decrementQuantity);
       const updateOrderStatus = util.promisify(Order.updateStatus);
       const updatePayment = util.promisify(Payment.updateByOrder);
+
+      if (!cart) {
+        const getItems = util.promisify(OrderItem.getItemsByOrder);
+        const existingItems = await getItems(localOrderId);
+        if (!existingItems || !existingItems.length) {
+          console.error('Stripe webhook missing items for order', localOrderId);
+          return res.status(200).json({ received: true });
+        }
+        cart = existingItems.map((it) => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          price: it.price,
+          productName: it.productName
+        }));
+      }
 
       for (const it of cart) {
         const rows = await getById(it.productId);
@@ -279,20 +292,14 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
       }
 
       for (const it of cart) {
-        await createItem(localOrderId, it.productId, it.quantity, it.price);
         await decrement(it.productId, it.quantity);
       }
 
       await updateOrderStatus(localOrderId, 'PAID');
 
-      const payerEmail = session.customer_details && session.customer_details.email
-        ? session.customer_details.email
-        : null;
-
       await updatePayment(localOrderId, {
         status: 'COMPLETED',
-        providerRef: session.id,
-        payerEmail
+        providerRef: paymentIntent.id
       });
 
       if (app.locals.pendingStripeCarts) {
@@ -300,21 +307,6 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
       }
     } catch (err) {
       console.error('Stripe webhook finalize error:', err);
-    }
-  } else if (event.type === 'checkout.session.expired') {
-    const session = event.data.object;
-    const localOrderId = session.metadata && session.metadata.localOrderId
-      ? Number(session.metadata.localOrderId)
-      : null;
-
-    if (localOrderId) {
-      const updateOrderStatus = util.promisify(Order.updateStatus);
-      const updatePayment = util.promisify(Payment.updateByOrder);
-      await updateOrderStatus(localOrderId, 'CANCELED');
-      await updatePayment(localOrderId, { status: 'CANCELED', providerRef: session.id });
-      if (app.locals.pendingStripeCarts) {
-        app.locals.pendingStripeCarts.delete(localOrderId);
-      }
     }
   } else if (event.type === 'payment_intent.payment_failed') {
     const paymentIntent = event.data.object;
@@ -428,10 +420,19 @@ app.get('/paypal/return', checkAuthenticated, checkCustomer, async (req, res) =>
 
     const payerEmail =
       capture.payer && capture.payer.email_address ? capture.payer.email_address : null;
+    const captureId =
+      capture &&
+      capture.purchase_units &&
+      capture.purchase_units[0] &&
+      capture.purchase_units[0].payments &&
+      capture.purchase_units[0].payments.captures &&
+      capture.purchase_units[0].payments.captures[0]
+        ? capture.purchase_units[0].payments.captures[0].id
+        : null;
 
     await updatePayment(localOrderId, {
       status: 'COMPLETED',
-      providerRef: orderID,
+      providerRef: captureId || orderID,
       payerEmail
     });
 
@@ -495,10 +496,19 @@ app.post('/paypal/capture-order', checkAuthenticated, checkCustomer, async (req,
 
     // payer email from capture (best-effort)
     const payerEmail = capture.payer && capture.payer.email_address ? capture.payer.email_address : null;
+    const captureId =
+      capture &&
+      capture.purchase_units &&
+      capture.purchase_units[0] &&
+      capture.purchase_units[0].payments &&
+      capture.purchase_units[0].payments.captures &&
+      capture.purchase_units[0].payments.captures[0]
+        ? capture.purchase_units[0].payments.captures[0].id
+        : null;
 
     await updatePayment(localOrderId, {
       status: 'COMPLETED',
-      providerRef: orderID,
+      providerRef: captureId || orderID,
       payerEmail
     });
 
@@ -516,7 +526,7 @@ app.post('/paypal/capture-order', checkAuthenticated, checkCustomer, async (req,
 // =========================
 // STRIPE CHECKOUT
 // =========================
-app.post('/stripe/create-checkout-session', checkAuthenticated, checkCustomer, async (req, res) => {
+app.post('/stripe/create-payment-intent', checkAuthenticated, checkCustomer, async (req, res) => {
   try {
     const cart = req.session.cart || [];
     const user = req.session.user;
@@ -534,21 +544,36 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, checkCustomer, a
     const shipping = cart.length ? SHIPPING_FLAT : 0;
     const total = subtotal + tax + shipping;
 
+    const getById = util.promisify(ProductModel.getById);
     const createOrder = util.promisify(Order.create);
+    const createItem = util.promisify(OrderItem.create);
+
+    for (const it of cart) {
+      const rows = await getById(it.productId);
+      const prod = rows && rows[0];
+      if (!prod || Number(prod.quantity) < Number(it.quantity)) {
+        return res.status(400).json({ error: `Insufficient stock for ${it.productName}.` });
+      }
+    }
+
     const orderResult = await createOrder(user.id, total, 'stripe', 'PENDING');
     const localOrderId = orderResult.insertId;
+
+    for (const it of cart) {
+      await createItem(localOrderId, it.productId, it.quantity, it.price);
+    }
 
     const createPayment = util.promisify(Payment.create);
     await createPayment(localOrderId, user.id, 'stripe', total, 'SGD', 'CREATED', user.email, null);
 
-    const session = await stripeService.createCheckoutSession({
+    const intent = await stripeService.createPaymentIntent({
       cart,
       user,
       localOrderId
     });
 
     const updatePayment = util.promisify(Payment.updateByOrder);
-    await updatePayment(localOrderId, { providerRef: session.id });
+    await updatePayment(localOrderId, { providerRef: intent.id });
 
     app.locals.pendingStripeCarts.set(localOrderId, {
       cart,
@@ -556,30 +581,42 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, checkCustomer, a
       createdAt: Date.now()
     });
 
-    return res.json({ url: session.url });
+    return res.json({ clientSecret: intent.client_secret, orderId: localOrderId });
   } catch (err) {
-    console.error('Stripe create-checkout-session error:', err);
-    return res.status(500).json({ error: 'Unable to start Stripe checkout.' });
+    console.error('Stripe create-payment-intent error:', err);
+    return res.status(500).json({ error: 'Unable to start Stripe payment.' });
   }
 });
 
-app.get('/stripe/success', checkAuthenticated, checkCustomer, (req, res) => {
-  const sessionId = req.query.session_id || '';
-  res.render('stripeProcessing', { title: 'Processing Payment', sessionId });
+app.get('/stripe/return', checkAuthenticated, checkCustomer, async (req, res) => {
+  const clientSecret = req.query.payment_intent_client_secret;
+  if (!clientSecret) return res.redirect('/orders');
+
+  const paymentIntentId = clientSecret.split('_secret_')[0];
+  if (!paymentIntentId) return res.redirect('/orders');
+
+  try {
+    const paymentIntent = await stripeService.retrievePaymentIntent(paymentIntentId);
+    const status = paymentIntent && paymentIntent.status;
+
+    Payment.getByProviderRef(paymentIntentId, (err, rows) => {
+      if (err || !rows || !rows.length) return res.redirect('/orders');
+      const orderId = rows[0].order_id;
+      if (status === 'succeeded') {
+        req.session.cart = [];
+        return res.redirect('/orders/' + orderId);
+      }
+      return res.redirect('/orders');
+    });
+  } catch (err) {
+    console.error('Stripe return error:', err);
+    return res.redirect('/orders');
+  }
 });
 
-app.get('/stripe/status', checkAuthenticated, checkCustomer, (req, res) => {
-  const sessionId = req.query.session_id;
-  if (!sessionId) return res.status(400).json({ ok: false, error: 'Missing session_id' });
-
-  Payment.getByProviderRef(sessionId, (err, rows) => {
-    if (err) return res.status(500).json({ ok: false, error: 'Lookup failed' });
-    if (!rows || !rows.length) return res.json({ ok: true, paid: false });
-
-    const payment = rows[0];
-    const paid = payment.status === 'COMPLETED';
-    return res.json({ ok: true, paid, orderId: payment.order_id });
-  });
+app.post('/stripe/clear-cart', checkAuthenticated, checkCustomer, (req, res) => {
+  req.session.cart = [];
+  return res.json({ ok: true });
 });
 
 // =========================
@@ -607,6 +644,65 @@ app.get(
   checkAdmin,
   CartController.adminOrderDetails
 );
+
+app.post('/admin/orders/:id/refund', checkAuthenticated, checkAdmin, async (req, res) => {
+  const orderId = Number(req.params.id);
+  const reason = (req.body.reason || '').trim();
+
+  try {
+    const getOrder = util.promisify(Order.getById);
+    const getPayment = util.promisify(Payment.getByOrderId);
+    const updateOrderStatus = util.promisify(Order.updateStatus);
+    const updatePayment = util.promisify(Payment.updateByOrder);
+
+    const orderRows = await getOrder(orderId);
+    const order = orderRows && orderRows[0];
+    if (!order) {
+      req.flash('error', 'Order not found.');
+      return res.redirect('/admin/orders');
+    }
+
+    const paymentRows = await getPayment(orderId);
+    const payment = paymentRows && paymentRows[0];
+    if (!payment) {
+      req.flash('error', 'Payment record not found.');
+      return res.redirect('/admin/orders/' + orderId);
+    }
+
+    if (order.status === 'REFUNDED' || payment.status === 'REFUNDED') {
+      req.flash('info', 'Order already refunded.');
+      return res.redirect('/admin/orders/' + orderId);
+    }
+
+    let refundRef = null;
+    if (payment.provider === 'stripe') {
+      const refund = await stripeService.refundPaymentIntent(payment.provider_ref);
+      refundRef = refund && refund.id ? refund.id : null;
+    } else if (payment.provider === 'paypal') {
+      const refund = await paypal.refundCapture(payment.provider_ref);
+      refundRef = refund && refund.id ? refund.id : null;
+    } else {
+      req.flash('error', 'Refund not supported for this payment method.');
+      return res.redirect('/admin/orders/' + orderId);
+    }
+
+    const refundedAt = new Date();
+    await updateOrderStatus(orderId, 'REFUNDED');
+    await updatePayment(orderId, {
+      status: 'REFUNDED',
+      refundRef,
+      refundedAt,
+      refundReason: reason || null
+    });
+
+    req.flash('success', 'Refund successful.');
+    return res.redirect('/admin/orders/' + orderId);
+  } catch (err) {
+    console.error('Refund error:', err);
+    req.flash('error', 'Refund failed.');
+    return res.redirect('/admin/orders/' + orderId);
+  }
+});
 
 // =========================
 // SERVER

@@ -73,7 +73,25 @@ async function capturePaypalOrder(paypalOrderId) {
   return res.data;
 }
 
+async function refundCapture(captureId) {
+  const token = await getAccessToken();
+
+  const res = await axios.post(
+    `${PAYPAL_BASE}/v2/payments/captures/${captureId}/refund`,
+    {},
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+
+  return res.data;
+}
+
 module.exports = {
   createPaypalOrder,
-  capturePaypalOrder
+  capturePaypalOrder,
+  refundCapture
 };

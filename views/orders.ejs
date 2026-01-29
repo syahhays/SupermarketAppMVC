@@ -21,6 +21,8 @@
             <th>Order ID</th>
             <th>Total Amount</th>
             <th>Date</th>
+            <th>Status</th>
+            <th>Payment</th>
             <th>View</th>
           </tr>
         </thead>
@@ -31,6 +33,20 @@
               <td><%= order.id %></td>
               <td>$<%= Number(order.totalAmount || 0).toFixed(2) %></td>
               <td><%= order.orderDate %></td>
+              <td>
+                <span class="badge <%= order.status === 'REFUNDED' ? 'bg-danger' : (order.status === 'PAID' ? 'bg-success' : 'bg-secondary') %>">
+                  <%= order.status %>
+                </span>
+                <% if (order.refunded_at) { %>
+                  <div class="text-muted small">Refunded: <%= order.refunded_at %></div>
+                <% } %>
+              </td>
+              <td>
+                <div><%= order.payment_method || order.payment_provider || 'N/A' %></div>
+                <% if (order.refund_ref) { %>
+                  <div class="text-muted small">Refund ref: <%= String(order.refund_ref).slice(0, 10) %>...</div>
+                <% } %>
+              </td>
               <td>
                 <a href="/orders/<%= order.id %>" class="btn btn-primary btn-sm">Details</a>
               </td>
