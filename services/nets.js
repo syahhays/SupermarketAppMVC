@@ -1,5 +1,6 @@
 const axios = require("axios");
 const util = require("util");
+const crypto = require("crypto");
 const Order = require("../models/Order");
 const OrderItem = require("../models/OrderItem");
 const Payment = require("../models/Payment");
@@ -34,10 +35,13 @@ exports.generateQrCode = async (req, res) => {
 
   const cartTotal = Number(total).toFixed(2);
   console.log("NETS cart total:", cartTotal);
+  const txnId = `sandbox_nets|m|${crypto.randomUUID()}`;
   try {
+    console.log("NETS txn_id:", txnId);
+
     const requestBody = {
-      txn_id: "sandbox_nets|m|8ff8e5b6-d43e-4786-8ac5-7accf8c5bd9b", // Default for testing
-      amt_in_dollars: cartTotal,
+      txn_id: txnId,
+      amt_in_dollars: Number(cartTotal),
       notify_mobile: 0,
     };
 
@@ -128,27 +132,41 @@ exports.generateQrCode = async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("Error in generateQrCode:", error.message);
+    if (error.response) {
+      console.error(
+        "Error in generateQrCode:",
+        error.response.status,
+        error.response.data
+      );
+    } else {
+      console.error("Error in generateQrCode:", error.message);
+    }
     res.redirect("/nets-qr/fail");
   }
 };
 
 exports.checkQrStatus = async (req, res) => {
-  const { txnRetrievalRef, courseInitId } = req.query;
+  const { txnRetrievalRef } = req.query;
   if (!txnRetrievalRef) {
     return res.status(400).json({ ok: false, error: "Missing txnRetrievalRef" });
   }
 
   try {
-    const courseInitIdParam = courseInitId || getCourseInitIdParam();
-    const statusUrl = `https://sandbox.nets.openapipaas.com/api/v1/common/payments/nets/webhook?txn_retrieval_ref=${txnRetrievalRef}&course_init_id=${courseInitIdParam}`;
-
-    const response = await axios.get(statusUrl, {
-      headers: {
-        "api-key": process.env.API_KEY,
-        "project-id": process.env.PROJECT_ID,
+    const response = await axios.post(
+      "https://sandbox.nets.openapipaas.com/api/v1/common/payments/nets-qr/query",
+      {
+        txn_retrieval_ref: txnRetrievalRef,
+        frontend_timeout_status: 1,
       },
-    });
+      {
+        headers: {
+          "api-key": process.env.API_KEY,
+          "project-id": process.env.PROJECT_ID,
+          "Content-Type": "application/json",
+        },
+        timeout: 7000,
+      }
+    );
 
     const statusPayload = response.data || {};
     const result =
@@ -229,6 +247,10 @@ exports.checkQrStatus = async (req, res) => {
       orderId: finalizedOrderId,
     });
   } catch (error) {
+    const code = error && (error.code || error.errno);
+    if (code === "ECONNRESET" || code === "ETIMEDOUT") {
+      return res.json({ ok: false, error: "Status temporarily unavailable" });
+    }
     console.error("Error in checkQrStatus:", error.message);
     return res.status(500).json({ ok: false, error: "Status check failed" });
   }

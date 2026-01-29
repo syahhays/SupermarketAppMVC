@@ -43,7 +43,6 @@ const upload = multer({ storage });
 app.set('view engine', 'ejs');
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
 
 app.use(
   session({
@@ -55,6 +54,8 @@ app.use(
 );
 
 app.use(flash());
+
+app.locals.pendingStripeCarts = new Map();
 
 // GLOBAL TEMPLATE VARIABLES
 app.use((req, res, next) => {
@@ -215,11 +216,98 @@ app.get('/orders/:id', checkAuthenticated, checkCustomer, CartController.orderDe
 
 const paypal = require('./services/paypal');
 const nets = require('./services/nets');
+const stripeService = require('./services/stripe');
 const Payment = require('./models/Payment');
 const Order = require('./models/Order');
 const OrderItem = require('./models/OrderItem');
 const util = require('util');
 const ProductModel = require('./models/Product');
+
+// =========================
+// STRIPE WEBHOOK (raw body)
+// =========================
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripeService.constructEvent(req.body, sig);
+  } catch (err) {
+    console.error('Stripe webhook signature error:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  console.log('Stripe webhook received:', event.type);
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    console.log('Stripe session completed:', session.id);
+    const localOrderId = session.metadata && session.metadata.localOrderId
+      ? Number(session.metadata.localOrderId)
+      : null;
+
+    if (!localOrderId) {
+      return res.status(200).json({ received: true });
+    }
+
+    try {
+      const pendingCart = app.locals.pendingStripeCarts
+        ? app.locals.pendingStripeCarts.get(localOrderId)
+        : null;
+
+      if (!pendingCart || !pendingCart.cart || !pendingCart.cart.length) {
+        console.error('Stripe webhook missing cart snapshot for order', localOrderId);
+        return res.status(200).json({ received: true });
+      }
+
+      const cart = pendingCart.cart;
+
+      const getById = util.promisify(ProductModel.getById);
+      const createItem = util.promisify(OrderItem.create);
+      const decrement = util.promisify(ProductModel.decrementQuantity);
+      const updateOrderStatus = util.promisify(Order.updateStatus);
+      const updatePayment = util.promisify(Payment.updateByOrder);
+
+      for (const it of cart) {
+        const rows = await getById(it.productId);
+        const prod = rows && rows[0];
+        if (!prod || Number(prod.quantity) < Number(it.quantity)) {
+          await updateOrderStatus(localOrderId, 'FAILED');
+          await updatePayment(localOrderId, { status: 'FAILED' });
+          return res.status(200).json({ received: true });
+        }
+      }
+
+      for (const it of cart) {
+        await createItem(localOrderId, it.productId, it.quantity, it.price);
+        await decrement(it.productId, it.quantity);
+      }
+
+      await updateOrderStatus(localOrderId, 'PAID');
+
+      const payerEmail = session.customer_details && session.customer_details.email
+        ? session.customer_details.email
+        : null;
+
+      await updatePayment(localOrderId, {
+        status: 'COMPLETED',
+        providerRef: session.id,
+        payerEmail
+      });
+
+      if (app.locals.pendingStripeCarts) {
+        app.locals.pendingStripeCarts.delete(localOrderId);
+      }
+    } catch (err) {
+      console.error('Stripe webhook finalize error:', err);
+    }
+  }
+
+  return res.status(200).json({ received: true });
+});
+
+// JSON body parser for normal routes (must be after webhook)
+app.use(express.json());
 
 app.post('/paypal/create-order', checkAuthenticated, checkCustomer, async (req, res) => {
   try {
@@ -246,8 +334,11 @@ app.post('/paypal/create-order', checkAuthenticated, checkCustomer, async (req, 
     const createPayment = util.promisify(Payment.create);
     await createPayment(localOrderId, user.id, 'paypal', total, 'SGD', 'CREATED', user.email, null);
 
-    // create PayPal order
-    const ppOrder = await paypal.createPaypalOrder(total, 'SGD');
+    // create PayPal order with return/cancel URLs
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const returnUrl = `${baseUrl}/paypal/return`;
+    const cancelUrl = `${baseUrl}/paypal/cancel`;
+    const ppOrder = await paypal.createPaypalOrder(total, 'SGD', returnUrl, cancelUrl);
 
     // store mapping in session so capture knows which local order to finalize
     req.session.pendingOrderId = localOrderId;
@@ -256,11 +347,77 @@ app.post('/paypal/create-order', checkAuthenticated, checkCustomer, async (req, 
     const updatePayment = util.promisify(Payment.updateByOrder);
     await updatePayment(localOrderId, { providerRef: ppOrder.id });
 
-    return res.json({ id: ppOrder.id });
+    const approveLink =
+      (ppOrder.links || []).find((l) => l.rel === 'approve') ||
+      (ppOrder.links || []).find((l) => l.rel === 'payer-action');
+
+    return res.json({ id: ppOrder.id, approveLink: approveLink ? approveLink.href : null });
   } catch (err) {
     console.error('PayPal create-order error:', err);
     return res.status(500).json({ error: 'Unable to create PayPal order.' });
   }
+});
+
+app.get('/paypal/return', checkAuthenticated, checkCustomer, async (req, res) => {
+  try {
+    const orderID = req.query.token || req.query.orderID;
+    const cart = req.session.cart || [];
+    const user = req.session.user;
+
+    const localOrderId = req.session.pendingOrderId;
+    if (!localOrderId) return res.redirect('/checkout');
+    if (!cart.length) return res.redirect('/cart');
+
+    const capture = await paypal.capturePaypalOrder(orderID);
+
+    if (!capture || capture.status !== 'COMPLETED') {
+      return res.redirect('/checkout');
+    }
+
+    const getById = util.promisify(ProductModel.getById);
+    const createItem = util.promisify(OrderItem.create);
+    const decrement = util.promisify(ProductModel.decrementQuantity);
+    const updateOrderStatus = util.promisify(Order.updateStatus);
+    const updatePayment = util.promisify(Payment.updateByOrder);
+
+    for (const it of cart) {
+      const rows = await getById(it.productId);
+      const prod = rows && rows[0];
+      if (!prod || Number(prod.quantity) < Number(it.quantity)) {
+        await updatePayment(localOrderId, { status: 'FAILED' });
+        return res.redirect('/cart');
+      }
+    }
+
+    for (const it of cart) {
+      await createItem(localOrderId, it.productId, it.quantity, it.price);
+      await decrement(it.productId, it.quantity);
+    }
+
+    await updateOrderStatus(localOrderId, 'PAID');
+
+    const payerEmail =
+      capture.payer && capture.payer.email_address ? capture.payer.email_address : null;
+
+    await updatePayment(localOrderId, {
+      status: 'COMPLETED',
+      providerRef: orderID,
+      payerEmail
+    });
+
+    req.session.cart = [];
+    req.session.pendingOrderId = null;
+
+    return res.redirect('/orders/' + localOrderId);
+  } catch (err) {
+    console.error('PayPal return error:', err);
+    return res.redirect('/checkout');
+  }
+});
+
+app.get('/paypal/cancel', checkAuthenticated, checkCustomer, (req, res) => {
+  req.flash('info', 'PayPal payment cancelled.');
+  return res.redirect('/checkout');
 });
 
 app.post('/paypal/capture-order', checkAuthenticated, checkCustomer, async (req, res) => {
@@ -324,6 +481,62 @@ app.post('/paypal/capture-order', checkAuthenticated, checkCustomer, async (req,
     console.error('PayPal capture-order error:', err);
     return res.status(500).json({ error: 'Unable to capture PayPal payment.' });
   }
+});
+
+// =========================
+// STRIPE CHECKOUT
+// =========================
+app.post('/stripe/create-checkout-session', checkAuthenticated, checkCustomer, async (req, res) => {
+  try {
+    const cart = req.session.cart || [];
+    const user = req.session.user;
+
+    if (!cart.length) return res.status(400).json({ error: 'Cart is empty.' });
+
+    const TAX_RATE = 0.07;
+    const SHIPPING_FLAT = 5.0;
+
+    const subtotal = cart.reduce(
+      (sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0),
+      0
+    );
+    const tax = subtotal * TAX_RATE;
+    const shipping = cart.length ? SHIPPING_FLAT : 0;
+    const total = subtotal + tax + shipping;
+
+    const createOrder = util.promisify(Order.create);
+    const orderResult = await createOrder(user.id, total, 'stripe', 'PENDING');
+    const localOrderId = orderResult.insertId;
+
+    const createPayment = util.promisify(Payment.create);
+    await createPayment(localOrderId, user.id, 'stripe', total, 'SGD', 'CREATED', user.email, null);
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const session = await stripeService.createCheckoutSession({
+      cart,
+      user,
+      localOrderId,
+      baseUrl
+    });
+
+    const updatePayment = util.promisify(Payment.updateByOrder);
+    await updatePayment(localOrderId, { providerRef: session.id });
+
+    app.locals.pendingStripeCarts.set(localOrderId, {
+      cart,
+      userId: user.id,
+      createdAt: Date.now()
+    });
+
+    return res.json({ url: session.url });
+  } catch (err) {
+    console.error('Stripe create-checkout-session error:', err);
+    return res.status(500).json({ error: 'Unable to start Stripe checkout.' });
+  }
+});
+
+app.get('/stripe/success', checkAuthenticated, checkCustomer, (req, res) => {
+  res.render('stripeProcessing', { title: 'Processing Payment' });
 });
 
 // =========================

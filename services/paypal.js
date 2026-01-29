@@ -25,7 +25,7 @@ async function getAccessToken() {
   return res.data.access_token;
 }
 
-async function createPaypalOrder(amount, currency = 'SGD') {
+async function createPaypalOrder(amount, currency = 'SGD', returnUrl, cancelUrl) {
   const token = await getAccessToken();
 
   const res = await axios.post(
@@ -39,7 +39,11 @@ async function createPaypalOrder(amount, currency = 'SGD') {
             value: Number(amount).toFixed(2)
           }
         }
-      ]
+      ],
+      application_context: {
+        return_url: returnUrl,
+        cancel_url: cancelUrl
+      }
     },
     {
       headers: {
