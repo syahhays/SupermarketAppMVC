@@ -1,10 +1,19 @@
 const Stripe = require('stripe');
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error('Missing STRIPE_SECRET_KEY in environment');
+}
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: '2024-06-20'
 });
 
-const createCheckoutSession = async ({ cart, user, localOrderId, baseUrl }) => {
+const createCheckoutSession = async ({ cart, user, localOrderId }) => {
+  const appBaseUrl = process.env.APP_BASE_URL;
+  if (!appBaseUrl) {
+    throw new Error('Missing APP_BASE_URL in environment');
+  }
+
   const TAX_RATE = 0.07;
   const SHIPPING_FLAT = 5.0;
 
@@ -53,13 +62,20 @@ const createCheckoutSession = async ({ cart, user, localOrderId, baseUrl }) => {
 
   return stripe.checkout.sessions.create({
     mode: 'payment',
+    payment_method_types: ['card'],
     line_items: lineItems,
     metadata: {
       localOrderId: String(localOrderId),
       userId: user && user.id ? String(user.id) : ''
     },
-    success_url: `${baseUrl}/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl}/checkout`
+    payment_intent_data: {
+      metadata: {
+        localOrderId: String(localOrderId),
+        userId: user && user.id ? String(user.id) : ''
+      }
+    },
+    success_url: `${appBaseUrl}/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${appBaseUrl}/checkout`
   });
 };
 

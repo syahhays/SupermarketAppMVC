@@ -301,6 +301,36 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
     } catch (err) {
       console.error('Stripe webhook finalize error:', err);
     }
+  } else if (event.type === 'checkout.session.expired') {
+    const session = event.data.object;
+    const localOrderId = session.metadata && session.metadata.localOrderId
+      ? Number(session.metadata.localOrderId)
+      : null;
+
+    if (localOrderId) {
+      const updateOrderStatus = util.promisify(Order.updateStatus);
+      const updatePayment = util.promisify(Payment.updateByOrder);
+      await updateOrderStatus(localOrderId, 'CANCELED');
+      await updatePayment(localOrderId, { status: 'CANCELED', providerRef: session.id });
+      if (app.locals.pendingStripeCarts) {
+        app.locals.pendingStripeCarts.delete(localOrderId);
+      }
+    }
+  } else if (event.type === 'payment_intent.payment_failed') {
+    const paymentIntent = event.data.object;
+    const localOrderId = paymentIntent.metadata && paymentIntent.metadata.localOrderId
+      ? Number(paymentIntent.metadata.localOrderId)
+      : null;
+
+    if (localOrderId) {
+      const updateOrderStatus = util.promisify(Order.updateStatus);
+      const updatePayment = util.promisify(Payment.updateByOrder);
+      await updateOrderStatus(localOrderId, 'FAILED');
+      await updatePayment(localOrderId, { status: 'FAILED', providerRef: paymentIntent.id });
+      if (app.locals.pendingStripeCarts) {
+        app.locals.pendingStripeCarts.delete(localOrderId);
+      }
+    }
   }
 
   return res.status(200).json({ received: true });
@@ -511,12 +541,10 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, checkCustomer, a
     const createPayment = util.promisify(Payment.create);
     await createPayment(localOrderId, user.id, 'stripe', total, 'SGD', 'CREATED', user.email, null);
 
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
     const session = await stripeService.createCheckoutSession({
       cart,
       user,
-      localOrderId,
-      baseUrl
+      localOrderId
     });
 
     const updatePayment = util.promisify(Payment.updateByOrder);
@@ -536,7 +564,22 @@ app.post('/stripe/create-checkout-session', checkAuthenticated, checkCustomer, a
 });
 
 app.get('/stripe/success', checkAuthenticated, checkCustomer, (req, res) => {
-  res.render('stripeProcessing', { title: 'Processing Payment' });
+  const sessionId = req.query.session_id || '';
+  res.render('stripeProcessing', { title: 'Processing Payment', sessionId });
+});
+
+app.get('/stripe/status', checkAuthenticated, checkCustomer, (req, res) => {
+  const sessionId = req.query.session_id;
+  if (!sessionId) return res.status(400).json({ ok: false, error: 'Missing session_id' });
+
+  Payment.getByProviderRef(sessionId, (err, rows) => {
+    if (err) return res.status(500).json({ ok: false, error: 'Lookup failed' });
+    if (!rows || !rows.length) return res.json({ ok: true, paid: false });
+
+    const payment = rows[0];
+    const paid = payment.status === 'COMPLETED';
+    return res.json({ ok: true, paid, orderId: payment.order_id });
+  });
 });
 
 // =========================

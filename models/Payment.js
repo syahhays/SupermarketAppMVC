@@ -26,6 +26,16 @@ const Payment = {
     `;
 
     db.query(sql, [status || null, providerRef || null, payerEmail || null, orderId], callback);
+  },
+
+  getByProviderRef: (providerRef, callback) => {
+    const sql = `
+      SELECT *
+      FROM payments
+      WHERE provider_ref = ?
+      LIMIT 1
+    `;
+    db.query(sql, [providerRef], callback);
   }
 };
 
