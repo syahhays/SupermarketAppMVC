@@ -220,6 +220,7 @@ const stripeService = require('./services/stripe');
 const Payment = require('./models/Payment');
 const Order = require('./models/Order');
 const OrderItem = require('./models/OrderItem');
+const RefundRequest = require('./models/RefundRequest');
 const util = require('util');
 const ProductModel = require('./models/Product');
 
@@ -620,6 +621,54 @@ app.post('/stripe/clear-cart', checkAuthenticated, checkCustomer, (req, res) => 
 });
 
 // =========================
+// REFUND REQUESTS (CUSTOMER)
+// =========================
+app.post('/orders/:id/refund-request', checkAuthenticated, checkCustomer, async (req, res) => {
+  const orderId = Number(req.params.id);
+  const reason = (req.body.reason || '').trim();
+
+  if (!reason) {
+    req.flash('error', 'Refund reason is required.');
+    return res.redirect('/orders/' + orderId);
+  }
+
+  try {
+    const getOrder = util.promisify(Order.getById);
+    const getPayment = util.promisify(Payment.getByOrderId);
+    const getRefundReq = util.promisify(RefundRequest.getByOrderId);
+    const createRefundReq = util.promisify(RefundRequest.create);
+
+    const orderRows = await getOrder(orderId);
+    const order = orderRows && orderRows[0];
+    if (!order || Number(order.userId) !== Number(req.session.user.id)) {
+      req.flash('error', 'Order not found.');
+      return res.redirect('/orders');
+    }
+
+    const paymentRows = await getPayment(orderId);
+    const payment = paymentRows && paymentRows[0];
+    if (!payment || order.status !== 'PAID') {
+      req.flash('error', 'Only paid orders can be refunded.');
+      return res.redirect('/orders/' + orderId);
+    }
+
+    const existing = await getRefundReq(orderId);
+    if (existing && existing.length > 0) {
+      req.flash('info', 'Refund request already submitted.');
+      return res.redirect('/orders/' + orderId);
+    }
+
+    await createRefundReq(orderId, req.session.user.id, reason);
+    req.flash('success', 'Refund request submitted.');
+    return res.redirect('/orders/' + orderId);
+  } catch (err) {
+    console.error('Refund request error:', err);
+    req.flash('error', 'Unable to submit refund request.');
+    return res.redirect('/orders/' + orderId);
+  }
+});
+
+// =========================
 // NETS QR
 // =========================
 app.post('/nets-qr/request', checkAuthenticated, checkCustomer, nets.generateQrCode);
@@ -644,6 +693,86 @@ app.get(
   checkAdmin,
   CartController.adminOrderDetails
 );
+
+// =========================
+// REFUND REQUESTS (ADMIN)
+// =========================
+app.get('/admin/refunds', checkAuthenticated, checkAdmin, (req, res) => {
+  RefundRequest.getAll((err, rows) => {
+    if (err) {
+      console.error('Admin refunds error:', err);
+      req.flash('error', 'Error loading refund requests.');
+      return res.redirect('/admin/orders');
+    }
+    res.render('adminRefunds', { requests: rows || [] });
+  });
+});
+
+app.post('/admin/refunds/:id/approve', checkAuthenticated, checkAdmin, async (req, res) => {
+  const requestId = Number(req.params.id);
+  const adminNote = (req.body.admin_note || '').trim();
+
+  try {
+    const reqRows = await util.promisify(RefundRequest.getById)(requestId);
+    const reqRow = reqRows && reqRows[0];
+    if (!reqRow) {
+      req.flash('error', 'Refund request not found.');
+      return res.redirect('/admin/refunds');
+    }
+
+    const orderId = reqRow.order_id;
+    const paymentRows = await util.promisify(Payment.getByOrderId)(orderId);
+    const payment = paymentRows && paymentRows[0];
+
+    if (!payment) {
+      req.flash('error', 'Payment record not found.');
+      return res.redirect('/admin/refunds');
+    }
+
+    let refundRef = null;
+    if (payment.provider === 'stripe') {
+      const refund = await stripeService.refundPaymentIntent(payment.provider_ref);
+      refundRef = refund && refund.id ? refund.id : null;
+    } else if (payment.provider === 'paypal') {
+      const refund = await paypal.refundCapture(payment.provider_ref);
+      refundRef = refund && refund.id ? refund.id : null;
+    } else {
+      req.flash('error', 'Refund not supported for this payment method.');
+      return res.redirect('/admin/refunds');
+    }
+
+    await util.promisify(Order.updateStatus)(orderId, 'REFUNDED');
+    await util.promisify(Payment.updateByOrder)(orderId, {
+      status: 'REFUNDED',
+      refundRef,
+      refundedAt: new Date(),
+      refundReason: adminNote || null
+    });
+
+    await util.promisify(RefundRequest.updateStatus)(requestId, 'APPROVED', adminNote || null);
+    req.flash('success', 'Refund approved.');
+    return res.redirect('/admin/refunds');
+  } catch (err) {
+    console.error('Approve refund error:', err);
+    req.flash('error', 'Unable to approve refund.');
+    return res.redirect('/admin/refunds');
+  }
+});
+
+app.post('/admin/refunds/:id/reject', checkAuthenticated, checkAdmin, async (req, res) => {
+  const requestId = Number(req.params.id);
+  const adminNote = (req.body.admin_note || '').trim();
+
+  try {
+    await util.promisify(RefundRequest.updateStatus)(requestId, 'REJECTED', adminNote || null);
+    req.flash('success', 'Refund request rejected.');
+    return res.redirect('/admin/refunds');
+  } catch (err) {
+    console.error('Reject refund error:', err);
+    req.flash('error', 'Unable to reject refund.');
+    return res.redirect('/admin/refunds');
+  }
+});
 
 app.post('/admin/orders/:id/refund', checkAuthenticated, checkAdmin, async (req, res) => {
   const orderId = Number(req.params.id);

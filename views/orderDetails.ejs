@@ -149,6 +149,27 @@
         </div>
       </div>
 
+      <div class="mt-4">
+        <% if (order && order.status === 'PAID') { %>
+          <% if (!refundRequest || refundRequest.status === 'REJECTED') { %>
+            <form method="POST" action="/orders/<%= orderId %>/refund-request">
+              <div class="mb-2 fw-semibold">Request a refund</div>
+              <div class="mb-2">
+                <textarea class="form-control" name="reason" rows="3" placeholder="Reason for refund" required></textarea>
+              </div>
+              <button type="submit" class="btn btn-warning">Submit Refund Request</button>
+            </form>
+          <% } else { %>
+            <div class="alert alert-info">
+              Refund request status: <strong><%= refundRequest.status %></strong>
+              <% if (refundRequest.admin_note) { %>
+                <div class="mt-1 text-muted">Admin note: <%= refundRequest.admin_note %></div>
+              <% } %>
+            </div>
+          <% } %>
+        <% } %>
+      </div>
+
     </div>
 
     <a href="/orders" class="btn btn-secondary mt-4">Back to Order History</a>

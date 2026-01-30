@@ -53,18 +53,8 @@
     <h3 class="mt-2">Grand Total: $<%= Number(total || 0).toFixed(2) %></h3>
   </div>
 
-  <% if (payment && (payment.provider === 'paypal' || payment.provider === 'stripe')) { %>
-    <% if (payment.status !== 'REFUNDED' && order && order.status !== 'REFUNDED') { %>
-      <form method="POST" action="/admin/orders/<%= orderId %>/refund" class="mt-4">
-        <div class="mb-2">
-          <label for="refund-reason" class="form-label">Refund reason (optional)</label>
-          <input id="refund-reason" name="reason" class="form-control" placeholder="Reason for refund" />
-        </div>
-        <button type="submit" class="btn btn-danger">Refund</button>
-      </form>
-    <% } else { %>
-      <div class="alert alert-info mt-4">Order has been refunded.</div>
-    <% } %>
+  <% if (payment && payment.status === 'REFUNDED') { %>
+    <div class="alert alert-info mt-4">Order has been refunded.</div>
   <% } %>
 
   <a href="/admin/orders" class="btn btn-secondary mt-3">Back</a>

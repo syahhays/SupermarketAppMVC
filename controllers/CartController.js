@@ -3,6 +3,7 @@ const Product = require('../models/Product');
 const CartItem = require('../models/CartItem');
 const Order = require('../models/Order');
 const OrderItem = require('../models/OrderItem');
+const RefundRequest = require('../models/RefundRequest');
 const util = require('util');
 
 const TAX_RATE = 0.07;       // 7%
@@ -247,15 +248,23 @@ const orderDetails = (req, res) => {
         }
         const payment = paymentRows && paymentRows[0] ? paymentRows[0] : null;
 
-        res.render('orderDetails', {
-          items,
-          orderId: req.params.id,
-          subtotal,
-          tax,
-          shipping,
-          total,
-          order,
-          payment
+        RefundRequest.getByOrderId(req.params.id, (rrErr, rrRows) => {
+          if (rrErr) {
+            console.error('Order details refund request error:', rrErr);
+          }
+          const refundRequest = rrRows && rrRows[0] ? rrRows[0] : null;
+
+          res.render('orderDetails', {
+            items,
+            orderId: req.params.id,
+            subtotal,
+            tax,
+            shipping,
+            total,
+            order,
+            payment,
+            refundRequest
+          });
         });
       });
     });
